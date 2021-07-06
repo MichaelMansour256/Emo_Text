@@ -9,10 +9,9 @@ from utils import *
 from ops import *
 import librosa.display
 from IPython.display import Audio
-# import matplotlib
+import matplotlib
 import matplotlib.pyplot as plt
-#import tensorflow.compat.v1 as tf
-import soundfile as sf
+
 
 #%matplotlib inline
 # matplotlib.rcParams['figure.figsize'] = (16, 4)
@@ -627,8 +626,10 @@ class EmoMUNIT(object):
         import re
         print(" [*] Reading checkpoints...")
         checkpoint_dir = os.path.join(checkpoint_dir, self.model_dir)
-
+        print(checkpoint_dir)
         ckpt = tf.train.get_checkpoint_state(checkpoint_dir)
+        print(ckpt)
+        print(ckpt.model_checkpoint_path)
         if ckpt and ckpt.model_checkpoint_path:
             ckpt_name = os.path.basename(ckpt.model_checkpoint_path)
             print(ckpt.model_checkpoint_path)
@@ -651,7 +652,8 @@ class EmoMUNIT(object):
 
 
 
-
+import tensorflow.compat.v1 as tf
+import soundfile as sf
 with tf.Session(config=tf.ConfigProto(allow_soft_placement=True)) as sess:
     gan = EmoMUNIT(sess)
     gan.build_model()

@@ -1,4 +1,5 @@
 import tensorflow as tf
+#
 import tensorflow.compat.v1 as tf_contrib
 import tensorflow_addons as tfa
 
@@ -54,8 +55,8 @@ def resblock(x_init, channels, use_bias=True, scope='resblock'):
             x = instance_norm(x)
 
         return x + x_init
-
-def adaptive_resblock(x_init, channels, mu, sigma, use_bias=True, name='adaptive_resblock') :
+#last arg was name not scope
+def adaptive_resblock(x_init, channels, mu, sigma, use_bias=True, scope='adaptive_resblock'):
     with tf_contrib.variable_scope(scope):
         with tf_contrib.variable_scope('res1'):
             x = conv(x_init, channels, kernel=3, stride=1, pad=1, pad_type='reflect', use_bias=use_bias)

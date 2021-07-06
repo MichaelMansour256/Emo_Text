@@ -10,7 +10,8 @@ import tkinter as tk
 from PIL import ImageTk,Image
 from script import script
 from generate_audio import gtts
-
+from pdf_to_text import pdf
+import time
 class Root(Tk):
 
     def __init__(self):
@@ -21,6 +22,7 @@ class Root(Tk):
         self.labelFrame = ttk.LabelFrame(self, text = "Open File")
         self.labelFrame.grid(column = 0, row = 1, padx = 20, pady = 20)
         self.text=""
+
         self.emotion=""
         self.L1=None
         self.button()
@@ -45,19 +47,25 @@ class Root(Tk):
 
             input = E1.get("1.0", 'end-1c')
             print(input)
-            self.text=input
-            s = script()
-            msg = s.get_prediction(input)
-            self.emotion=msg
+            split_input=input.split(',')
+            for index,i in enumerate(split_input):
+                self.text = i
+                s = script()
+                msg = s.get_prediction(i)
+                L2 = Label(top, text="", compound=CENTER, fg="#800000", bg="white",
+                           font=("Times", 20)).place(x=370, y=50)
+                self.emotion = msg
+                L2 = Label(top, text="emotion is: " + self.emotion, compound=CENTER, fg="#800000", bg="white",
+                           font=("Times", 20)).place(x=50, y=50*index)
+                # L2.set(self.emotion)
 
-            L2 = Label(top, text="emotion is:"+self.emotion, compound=CENTER, fg="#800000", bg="white", font=("Times", 20)).place(x=370, y=50)
-            #L2.set(self.emotion)
+                #alert_popup("Success!", msg, i)
+                audio = gtts(self.text, self.emotion)
+                audio.generate()
+                time.sleep(1)
 
-            #alert_popup("Success!", msg, "")
-            audio = gtts(self.text, self.emotion)
-            audio.generate()
-            #play = lambda: PlaySound('gtts/joy/0.wav', SND_FILENAME)
-            #button = Button(top, text='Play', command=play).place(x=400,y=50)
+
+
 
 
         def alert_popup(title, message, path):
@@ -102,20 +110,28 @@ class Root(Tk):
     def fileDialog(self):
 
         self.filename = filedialog.askopenfilename(initialdir =  "/", title = "Select A File", filetype =
-        (("jpeg files","*.jpg"),("all files","*.*")) )
+        (("jpeg files","*.jpg"),("pdf files","*.pdf"),("all files","*.*")))
         self.label = ttk.Label(self.labelFrame, text = "")
         self.label.grid(column = 1, row = 2)
         self.label.configure(text = self.filename)
 
-        img = Image.open(self.filename)
-        photo = ImageTk.PhotoImage(img)
 
-        self.label2 = Label(image=photo)
-        self.label2.image = photo
-        self.label2.grid(column=3, row=4)
-        obj=ocr()
-        obj.IMAGE_PATH=self.filename
-        self.text=obj.get_text()
+        if self.filename[-3:] == "pdf":
+            obj = pdf(self.filename)
+            self.text=obj.text
+        else:
+            img = Image.open(self.filename)
+            photo = ImageTk.PhotoImage(img)
+
+            self.label2 = Label(image=photo)
+            self.label2.image = photo
+            self.label2.grid(column=3, row=4)
+            obj = ocr()
+            obj.IMAGE_PATH = self.filename
+            self.text = obj.get_text()
+
+
+
 
 
 root = Root()

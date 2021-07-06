@@ -1,6 +1,9 @@
 from gtts import gTTS
 from IPython.display import Audio
 import os
+import pyaudio
+import wave
+from playsound import playsound
 
 class gtts():
   def __init__(self,text,emotion):
@@ -13,4 +16,5 @@ class gtts():
       print(i)
       tts = gTTS(self.list_text[i])
       mp3name = str(i)
-      tts.save("%s.wav" % os.path.join("gtts/"+directory, mp3name))
+      tts.save("%s.mp3" % os.path.join("gtts/"+directory, mp3name))
+      playsound("gtts/"+directory+"/"+mp3name+".mp3")
