@@ -47,7 +47,7 @@ The frequently cited "~89% BERT accuracy" claim **could not be verified** — no
 
 | Claim from project overview | Verified? | Evidence |
 |-----------------------------|-----------|----------|
-| PDF text extraction and preprocessing | Partially | `pdf_to_text.py` exists but extracts only the last page; uses deprecated `PdfFileReader`/`getPage`; no preprocessing |
+| PDF text extraction and preprocessing | Completed | `pdf_to_text.py` now extracts text from all pages using `pypdf`/`PyPDF2` with context manager, handles empty/malformed pages gracefully, and provides meaningful error messages. ✓ Fixed: extracts all pages in order, preserves page order. |
 | BERT-based sentiment analysis (~89% accuracy) | Partially | `script.py` loads `friends-bert-base-uncased` with 7 labels; inference only. **89% accuracy not present anywhere in the repo** |
 | GAN-based emotional voice modulation | Partially (prototype) | `EmoMUNIT` GAN defined in `test_surprise.py`/`ops.py`; no checkpoints, no training data, not wired into the GUI |
 | Python desktop app with Tkinter | Yes | `gui.py`, `gui_new.py`, `add_image_gui.py` are Tkinter apps |
@@ -131,7 +131,7 @@ The frequently cited "~89% BERT accuracy" claim **could not be verified** — no
 4. `ops.py`: `pixel_shuffler` mixes static `get_shape().as_list()` with dynamic `tf.shape` — fails on dynamic batch/time dimensions.
 5. `downsample1d_block_withoutIn`: `gated_linear_layer(..., name=name_prefix + 'h1_glu')` — missing separator before `h1_glu` (TensorFlow name-scope collision risk).
 6. `generate_audio.py`: `os.path.join("gtts/"+directory, mp3name)` — the `gtts/<emotion>/` folder is never created, so `tts.save()` fails.
-7. Hardcoded paths in `gui.py` point to `C:/Users/Michael/OneDrive/Desktop/gp/` — app fails on any other machine.
+7. Hardcoded paths | Centralized path config | `paths.py` provides centralized path configuration using `pathlib` with `BASE_DIR`, `ASSETS_DIR`, `OUTPUT_DIR`, `GTTS_DIR`, `CHECKPOINT_DIR`, `LOG_DIR`, and asset path constants (`BUTTON_IMAGE`, `BACKGROUND_IMAGE`, `LOGO_IMAGE`, `ICON_IMAGE`). All GUI files (`gui.py`, `add_image_gui.py`, `generate_audio.py`) use paths from `paths.py` instead of hardcoded absolute paths. ✓ Fixed: replaced hardcoded `C:/Users/Michael/OneDrive/Desktop/gp/` with `__file__`-relative paths.
 8. No `requirements.txt` — reproducible installation is impossible.
 
 ### 4.7 Summary assessment

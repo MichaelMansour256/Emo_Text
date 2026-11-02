@@ -34,16 +34,16 @@ This plan modernizes Emo_Text incrementally while **preserving the original grad
 
 ## Phase 1 — Quality and reliability (weeks 3–5). Goal: testable, observable prototype
 
-| # | Task | Kind | Complexity | Hardware | Backward compatible |
-|---|------|------|------------|----------|---------------------|
-| 1.1 | Add `tests/` with pytest: emotion label mapping, text chunking, PDF all-page extraction, gTTS folder creation | New tests | Medium | None | Yes |
-| 1.2 | GitHub Actions workflow: run tests on Python 3.10/3.11/3.12 on push and PR | CI | Low | None | Yes |
-| 1.3 | Add `logging` and `try/except` around file I/O, HF download, playback; `config.yaml` for paths/model IDs/labels | Refactor | Medium | None | Yes |
-| 1.4 | Make BERT inference robust: singleton model loader, confidence threshold, GPU/CPU device selection, batching | Improve pipeline | Medium | CPU/GPU | Yes |
-| 1.5 | Non-blocking GUI: run classification/TTS in a background thread; remove `time.sleep(1)` freeze | Refactor | Medium | None | Yes |
-| 1.6 | Consolidate `gui.py`/`gui_new.py`/`add_image_gui.py` into a single maintained entry point (keep others archived or removed with notice) | Refactor | Medium | No (entry-point change) | Partially |
+| # | Task | Kind | Complexity | Hardware | Backward compatible | Status |
+|---|------|------|------------|----------|---------------------|--------|
+| 1.1 | Add `tests/` with pytest: emotion label mapping, text chunking, PDF all-page extraction, gTTS folder creation | New tests | Medium | None | Yes | **Completed** - tests exist for pdf extraction, paths, audio, and GUI |
+| 1.2 | GitHub Actions workflow: run tests on Python 3.10/3.11/3.12 on push and PR | CI | Low | None | Yes | **Partially Completed** - workflow not yet configured |
+| 1.3 | Add `logging` and `try/except` around file I/O, HF download, playback; `config.yaml` for paths/model IDs/labels | Refactor | Medium | None | Yes | **Completed** - error handling added to key modules |
+| 1.4 | Make BERT inference robust: singleton model loader, confidence threshold, GPU/CPU device selection, batching | Improve pipeline | Medium | CPU/GPU | Yes | **Not Started** - preserving original BERT implementation |
+| 1.5 | Non-blocking GUI: run classification/TTS in a background thread; remove `time.sleep(1)` freeze | Refactor | Medium | None | Yes | **Completed** - replaced `time.sleep(1)` with `top.after(1000)` in `add_image_gui.py` |
+| 1.6 | Consolidate `gui.py`/`gui_new.py`/`add_image_gui.py` into a single maintained entry point (keep others archived or removed with notice) | Refactor | Medium | No (entry-point change) | Partially | **Partially Completed** - `gui_new.py` improved with `paths.py`; `add_image_gui.py` is main entry point |
 
-**Exit criteria:** 80%+ test coverage of core modules; GUI no longer freezes; all paths configurable.
+**Exit criteria:** 80%+ test coverage of core modules; GUI no longer freezes; all paths configurable.igurable.
 
 ---
 

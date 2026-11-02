@@ -12,17 +12,27 @@ class gui(tk):
         self.title("Python Tkinter Dialog Widget")
         self.minsize(640, 400)
 
+        # Resolve asset paths relative to BASE_DIR
+        import os
+        import sys
+        sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+        from script import script
+        from paths import BASE_DIR, ASSETS_DIR
+
+        button_image = os.path.join(ASSETS_DIR, "img0.png")
+        background_image = os.path.join(ASSETS_DIR, "side_img.jpg")
 
 
 
 
-    top = tk.Tk()
-    top.configure(bg='white')
-    top.title("EMO TEXT")
-    L1 = Label(top, text="Enter a sentence",compound = CENTER,fg = "#4f54d2",bg="white",font = ("Times",20)).place(x=370,y=20)
-    value=StringVar(top)
-    E1 = Text(top,width=20,font=('courier', 15, 'bold'))
-    E1.place(x=310,y=100)
+
+    # Widgets will be created in open_text_window() method using Toplevel
+    # top configuration moved to open_text_window
+    # Window title set in open_text_window
+    # L1 = CENTER,fg = "#4f54d2",bg="white",font = ("Times",20)).place(x=370,y=20)
+    # value = StringVar - moved to open_text_window
+    # E1 Text widget - created in open_text_window
+    # E1.place - moved to open_text_window
 
     def retrieve_input(self):
         input = self.E1.get("1.0",'end-1c')

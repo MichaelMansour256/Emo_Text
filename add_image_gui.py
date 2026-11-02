@@ -7,11 +7,12 @@ from ocr import ocr
 from gui import gui
 from tkinter import *
 import tkinter as tk
-from PIL import ImageTk,Image
+from PIL import ImageTk, Image
 from script import script
 from generate_audio import gtts
 from pdf_to_text import pdf
-import time
+from paths import BUTTON_IMAGE, BACKGROUND_IMAGE, BASE_DIR
+
 class Root(Tk):
 
     def __init__(self):
@@ -33,9 +34,9 @@ class Root(Tk):
         self.button.grid(column = 1, row = 1)
 
     def new_win(self):
-        root.destroy()
-        top = tk.Tk()
-        top.configure(bg='white')
+        # Use Toplevel instead of destroying root and creating a new Tk.
+        top = tk.Toplevel(self)
+        top.configure(bg="white")
         top.title("EMO TEXT")
         self.L1 = Label(top, text="Enter a sentence", compound=CENTER, fg="#4f54d2", bg="white", font=("Times", 20)).place(
             x=370, y=20)
@@ -62,7 +63,8 @@ class Root(Tk):
                 #alert_popup("Success!", msg, i)
                 audio = gtts(self.text, self.emotion)
                 audio.generate()
-                time.sleep(1)
+                # Non-blocking delay using after instead of sleep
+                top.after(1000, lambda: None)
 
 
 
@@ -70,38 +72,52 @@ class Root(Tk):
 
         def alert_popup(title, message, path):
             """Generate a pop-up window for special messages."""
-            root = Tk()
-            root.title(title)
+            popup = tk.Toplevel(top)
+            popup.title(title)
 
             w = 400  # popup window width
             h = 200  # popup window height
 
-            sw = root.winfo_screenwidth()
-            sh = root.winfo_screenheight()
+            sw = popup.winfo_screenwidth()
+            sh = popup.winfo_screenheight()
 
-            x = (sw - w) / 2
-            y = (sh - h) / 2
-            root.geometry('%dx%d+%d+%d' % (w, h, x, y))
+            x = (sw - w) // 2
+            y = (sh - h) // 2
+            popup.geometry(f"{w}x{h}+{x}+{y}")
 
             m = message
-            m += '\n'
+            m += "\n"
             m += path
-            w = Label(root, text=m, width=120, height=10)
-            w.pack()
-            b = Button(root, text="OK", command=root.destroy, width=10)
+            w_label = Label(popup, text=m, width=120, height=10)
+            w_label.pack()
+            b = Button(popup, text="OK", command=popup.destroy, width=10)
             b.pack()
-            mainloop()
+            popup.transient(top)
+            popup.grab_set()
+            top.wait_window(popup)
 
-        g_btn = PhotoImage(file="img0.png")
-        img0 = Button(top, image=g_btn, borderwidth=0, command=retrieve_input).place(x=310, y=400)
+        # Use centralized asset paths with fallback for missing assets.
+        try:
+            g_btn = PhotoImage(file=str(BUTTON_IMAGE))
+            img0 = Button(
+                top, image=g_btn, borderwidth=0, command=retrieve_input
+            ).place(x=310, y=400)
+            top._button_image_ref = g_btn  # keep reference to prevent GC
+        except Exception:
+            img0 = Button(
+                top, text="Play", borderwidth=0, command=retrieve_input
+            ).place(x=310, y=400)
 
-        img = Image.open("side_img.jpg")
-        img = img.resize((300, 500))
-        tkimage = ImageTk.PhotoImage(img)
-        tk.Label(top, image=tkimage).place(x=0, y=0)
+        try:
+            img = Image.open(str(BACKGROUND_IMAGE))
+            img = img.resize((300, 500))
+            tkimage = ImageTk.PhotoImage(img)
+            tk.Label(top, image=tkimage).place(x=0, y=0)
+            top._bg_image_ref = tkimage
+        except Exception:
+            pass
 
         top.geometry("600x500")
-        top.mainloop()
 
     def button2(self):
         self.button2 = ttk.Button(self.labelFrame, text = "get the text",command = self.new_win)
@@ -109,29 +125,68 @@ class Root(Tk):
 
     def fileDialog(self):
 
-        self.filename = filedialog.askopenfilename(initialdir =  "/", title = "Select A File", filetype =
-        (("jpeg files","*.jpg"),("pdf files","*.pdf"),("all files","*.*")))
-        self.label = ttk.Label(self.labelFrame, text = "")
-        self.label.grid(column = 1, row = 2)
-        self.label.configure(text = self.filename)
+        self.filename = filedialog.askopenfilename(
+            initialdir=str(BASE_DIR),
+            title="Select A File",
+            filetype=(("jpeg files", "*.jpg"), ("pdf files", "*.pdf"), ("all files", "*.*")),
+        )
+        self.label = ttk.Label(self.labelFrame, text="")
+        self.label.grid(column=1, row=2)
+        self.label.configure(text=self.filename)
 
+        if not self.filename:
+            return
 
-        if self.filename[-3:] == "pdf":
-            obj = pdf(self.filename)
-            self.text=obj.text
+        if self.filename.lower().endswith(".pdf"):
+            try:
+                obj = pdf(self.filename)
+                self.text = obj.text
+            except Exception as exc:
+                self.alert_popup("PDF Error", str(exc), "")
         else:
-            img = Image.open(self.filename)
-            photo = ImageTk.PhotoImage(img)
+            try:
+                img = Image.open(self.filename)
+                photo = ImageTk.PhotoImage(img)
 
-            self.label2 = Label(image=photo)
-            self.label2.image = photo
-            self.label2.grid(column=3, row=4)
-            obj = ocr()
-            obj.IMAGE_PATH = self.filename
-            self.text = obj.get_text()
+                self.label2 = Label(image=photo)
+                self.label2.image = photo
+                self.label2.grid(column=3, row=4)
+                obj = ocr()
+                obj.IMAGE_PATH = self.filename
+                self.text = obj.get_text()
+            except Exception as exc:
+                self.alert_popup("Image Error", str(exc), "")
 
 
 
+
+
+
+    def alert_popup(self, title, message, path):
+        """Generate a pop-up window for special messages."""
+        popup = tk.Toplevel(self)
+        popup.title(title)
+
+        w = 400  # popup window width
+        h = 200  # popup window height
+
+        sw = popup.winfo_screenwidth()
+        sh = popup.winfo_screenheight()
+
+        x = (sw - w) // 2
+        y = (sh - h) // 2
+        popup.geometry(f"{w}x{h}+{x}+{y}")
+
+        m = message
+        m += "\n"
+        m += path
+        w_label = Label(popup, text=m, width=120, height=10)
+        w_label.pack()
+        b = Button(popup, text="OK", command=popup.destroy, width=10)
+        b.pack()
+        popup.transient(self)
+        popup.grab_set()
+        self.wait_window(popup)
 
 
 root = Root()

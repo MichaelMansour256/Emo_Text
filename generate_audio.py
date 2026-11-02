@@ -4,6 +4,8 @@ import os
 import pyaudio
 import wave
 from playsound import playsound
+from paths import resolve_output_subdir
+
 
 class gtts():
   def __init__(self,text,emotion):
@@ -14,7 +16,9 @@ class gtts():
     for i in range(len(self.list_text)):
       directory = self.emotion
       print(i)
+      # Ensure the output directory for this emotion exists.
+      out_dir = resolve_output_subdir(directory)
       tts = gTTS(self.list_text[i])
       mp3name = str(i)
-      tts.save("%s.mp3" % os.path.join("gtts/"+directory, mp3name))
-      playsound("gtts/"+directory+"/"+mp3name+".mp3")
+      tts.save(os.path.join(out_dir, mp3name + ".mp3"))
+      playsound(os.path.join(out_dir, mp3name + ".mp3"))

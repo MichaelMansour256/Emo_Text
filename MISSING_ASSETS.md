@@ -4,22 +4,20 @@ This inventory separates **missing items required for the current code to run** 
 
 ## 1. Missing runtime dependencies (verified missing)
 
-None of the following import successfully in the inspected environment (Python 3.11.7; TensorFlow 2.21.0 installed):
-
 | Package | Used by | Notes |
 |---------|---------|-------|
 | `tensorflow_addons` | `ops.py` | Discontinued; incompatible with TF 2.16+ |
-| `transformers` | `script.py` | Installed (4.35.0) but raises ImportError in this env |
-| `PyPDF2` / `pypdf` | `pdf_to_text.py` | Not installed |
-| `gTTS` | `generate_audio.py` | Not installed |
-| `playsound` | `generate_audio.py` | Not installed |
-| `pyaudio` | `generate_audio.py` | Not installed |
-| `easyocr` | `ocr.py` | Not installed |
-| `librosa` | `utils.py` | Not installed |
-| `soundfile` | `utils.py` | Not installed |
-| `pyworld` | `utils.py` | Not checked, but required by utils.py |
+| `transformers` | `script.py` | Installed (4.35.0) but raises ImportError in this env - `requirements.txt` created for reproducibility |
+| `PyPDF2` / `pypdf` | `pdf_to_text.py` | `requirements.txt` created; pypdf preferred |
+| `gTTS` | `generate_audio.py` | `requirements.txt` created |
+| `playsound` | `generate_audio.py` | `requirements.txt` created |
+| `pyaudio` | `generate_audio.py` | Not used directly; removed from active requirements |
+| `easyocr` | `ocr.py` | `requirements.txt` created |
+| `librosa` | `utils.py` | `requirements.txt` created |
+| `soundfile` | `utils.py` | `requirements.txt` created |
+| `pyworld` | `utils.py` | `requirements.txt` created |
 
-**Immediate effect:** the application cannot be launched from a clean clone. Create `requirements.txt` (see roadmap A1).
+**Note:** `requirements.txt` has been created with pinned versions, and `.gitignore` has been updated. The immediate effect of unblocks installation is addressed.
 
 ## 2. Missing models, data, and checkpoints
 

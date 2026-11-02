@@ -1,0 +1,48 @@
+# Emo_Text — Runtime dependencies
+#
+# Core GUI dependencies (required to launch the application):
+#   - Pillow: image handling for Tkinter GUI
+#   - tkinter: standard library (no pip install needed)
+#
+# Optional ML/AI dependencies (required for specific features):
+#   - PyPDF2 / pypdf: PDF text extraction (pdf_to_text.py)
+#   - transformers + torch: BERT emotion classification (script.py)
+#   - gTTS + playsound: text-to-speech playback (generate_audio.py)
+#   - easyocr: image OCR (ocr.py)
+#   - librosa + pyworld + soundfile: WORLD vocoder DSP (utils.py, GAN pipeline)
+#
+# Experimental GAN (NOT part of the running GUI; incompatible with TF 2.x):
+#   - tensorflow, tensorflow-addons: EmoMUNIT GAN (test_surprise.py, ops.py)
+#     NOTE: TensorFlow Addons is discontinued and incompatible with TF 2.16+.
+#     The GAN code was written for TF 1.x and must be migrated before use.
+
+# ---- Core (GUI) ----
+Pillow>=10.0.0
+
+# ---- Optional: PDF extraction ----
+# pypdf is the actively maintained fork of PyPDF2; either one satisfies pdf_to_text.py
+pypdf>=4.0.0
+PyPDF2>=3.0.0
+
+# ---- Optional: Emotion classification ----
+transformers>=4.35.0
+torch>=2.0.0
+
+# ---- Optional: Text-to-speech ----
+gTTS>=2.5.0
+playsound>=1.3.0
+
+# ---- Optional: OCR ----
+easyocr>=1.7.0
+
+# ---- Optional: Audio DSP (GAN pipeline / utils.py) ----
+librosa>=0.10.0
+pyworld>=0.3.0
+soundfile>=0.12.0
+
+# ---- Experimental: GAN pipeline (TF 1.x, incompatible with TF 2.x) ----
+# tensorflow>=2.0.0
+# tensorflow-addons>=0.20.0
+
+# ---- Testing ----
+pytest>=7.0.0
