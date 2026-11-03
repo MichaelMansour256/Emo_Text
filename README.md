@@ -45,7 +45,7 @@ flowchart TD
 
     subgraph Experimental (not wired into GUI)
         WAV[WAV audio] --> WU[utils.py<br/>WORLD vocoder<br/>MCEP features]
-        WU --> GAN[test_surprise.py / ops.py<br/>EmoMUNIT GAN<br/>neutral → surprise]
+        WU --> GAN[test_surprise.py / ops.py<br/>EmoMUNIT GAN<br/>neutral --> surprise]
         GAN --> OUT[Converted WAV]
     end
 ```
