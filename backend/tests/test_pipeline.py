@@ -34,6 +34,23 @@ def test_build_book_makes_chapter_mp3s_and_chaptered_m4b(sample_epub, tmp_path):
 
 
 @requires_ffmpeg
+def test_directed_build_casts_voices_and_writes_script(tmp_path):
+    from emotext.director import get_director
+
+    src = tmp_path / "scene.txt"
+    src.write_text('Mara opened the door. "Who is it?" she asked.\n\n'
+                   '"Only me," said Dr. Hale.', encoding="utf-8")
+    result = build_book(src, tmp_path / "out", get_provider("tone"),
+                        director=get_director("heuristic"), make_m4b=False)
+    assert result.director == "heuristic"
+    assert set(result.cast["characters"]) == {"Mara", "Dr. Hale"}
+    assert len(set(result.cast["characters"].values())) == 2
+    script = json.loads((tmp_path / "out" / "script.json").read_text(encoding="utf-8"))
+    voices = {ln["speaker"]: ln["voice"] for ln in script[0]["lines"]}
+    assert voices["narrator"] == "mid" and voices["Mara"] != voices["Dr. Hale"]
+
+
+@requires_ffmpeg
 def test_rerun_reuses_line_cache(sample_txt, tmp_path):
     calls = []
     provider = get_provider("tone")

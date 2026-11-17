@@ -13,6 +13,9 @@ from dataclasses import asdict, dataclass, field
 from pathlib import Path
 
 from emotext import audio
+from emotext.casting import Cast
+from emotext.director import Director, Roster
+from emotext.director.base import NoDirector
 from emotext.ingest import load_document
 from emotext.models import Line
 from emotext.segment import build_lines
@@ -37,8 +40,11 @@ class BuildResult:
     title: str
     author: str | None
     provider: str
+    director: str = "none"
     chapters: list[ChapterResult] = field(default_factory=list)
     m4b: str | None = None
+    characters: list[dict] = field(default_factory=list)
+    cast: dict = field(default_factory=dict)
 
     @property
     def duration_s(self) -> float:
@@ -51,8 +57,10 @@ def safe_filename(name: str, max_len: int = 60) -> str:
 
 
 def _line_hash(provider: TTSProvider, line: Line) -> str:
+    # Only what changes the audio: emotion matters only to engines that perform it.
+    performance = [line.emotion, round(line.intensity, 2)] if provider.supports_emotion else []
     key = json.dumps(
-        [provider.cache_key(), line.text, line.speaker, line.emotion, round(line.intensity, 2)],
+        [provider.cache_key(), provider.voice_for(line), line.text, *performance],
         ensure_ascii=False,
     )
     return hashlib.sha256(key.encode("utf-8")).hexdigest()[:32]
@@ -83,6 +91,8 @@ def build_book(
     out_dir: str | Path,
     provider: TTSProvider,
     *,
+    director: Director | None = None,
+    cast_overrides: dict[str, str] | None = None,
     max_chapters: int | None = None,
     workers: int = 4,
     cache_dir: str | Path | None = None,
@@ -100,17 +110,29 @@ def build_book(
         if progress:
             progress(stage, done, total)
 
+    director = director or NoDirector()
     report("ingest", 0, 1)
     book = load_document(source)
     chapters = book.chapters[:max_chapters] if max_chapters else book.chapters
     for ch in chapters:
-        build_lines(ch, max_chars=provider.max_chars)
+        build_lines(ch, max_chars=provider.max_chars, dialogue=director.name != "none")
     total = sum(len(ch.lines) for ch in chapters)
     log.info("'%s': %d chapters, %d lines, %d words", book.title, len(chapters), total,
              sum(len(ch.text.split()) for ch in chapters))
     report("ingest", 1, 1)
 
-    result = BuildResult(title=book.title, author=book.author, provider=provider.name)
+    # Direct chapters in order so the cast list carries forward through the book.
+    roster = Roster()
+    cast = Cast(provider, cast_overrides)
+    for i, ch in enumerate(chapters):
+        report("direct", i, len(chapters))
+        director.direct(ch, roster)
+        cast.assign(ch.lines, roster)
+    report("direct", len(chapters), len(chapters))
+    log.info("Cast: %s", cast.to_dict()["characters"] or "narrator only")
+
+    result = BuildResult(title=book.title, author=book.author, provider=provider.name,
+                         director=director.name)
     done = 0
     with ThreadPoolExecutor(max_workers=max(1, workers)) as pool:
         for n, ch in enumerate(chapters, start=1):
@@ -147,6 +169,11 @@ def build_book(
         result.m4b = m4b.relative_to(out_dir).as_posix()
         report("assemble", 1, 1)
 
+    result.characters = roster.to_list()
+    result.cast = cast.to_dict()
+    (out_dir / "script.json").write_text(json.dumps(
+        [{"chapter": ch.title, "lines": [asdict(ln) for ln in ch.lines]} for ch in chapters],
+        indent=1, ensure_ascii=False), encoding="utf-8")
     manifest = asdict(result) | {"duration_s": round(result.duration_s, 2)}
     (out_dir / "manifest.json").write_text(json.dumps(manifest, indent=2, ensure_ascii=False),
                                            encoding="utf-8")
