@@ -21,6 +21,12 @@ class Settings(BaseSettings):
     openai_api_key: str | None = Field(default=None, validation_alias="OPENAI_API_KEY")
     openai_tts_model: str = "gpt-4o-mini-tts"
 
+    # Who decides speakers and emotions: none | heuristic | claude.
+    # The Claude client reads ANTHROPIC_API_KEY or an `ant auth login` profile itself.
+    director: str = "heuristic"
+    director_model: str = "claude-opus-5-5"
+    director_effort: str = "medium"
+
     max_upload_mb: int = 50
 
     @property

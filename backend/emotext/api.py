@@ -16,6 +16,7 @@ from fastapi.responses import FileResponse
 from pydantic import BaseModel
 
 from emotext import __version__
+from emotext.director import DIRECTORS
 from emotext.ingest import SUPPORTED_EXTENSIONS, DocumentError, load_document
 from emotext.settings import get_settings
 from emotext.tts import PROVIDERS
@@ -97,16 +98,19 @@ def create_job(
     provider: str | None = Form(None),
     voice: str | None = Form(None),
     max_chapters: int | None = Form(None, ge=1),
+    director: str | None = Form(None),
 ) -> JobStatus:
     """Upload a book and queue it for rendering."""
     if provider and provider not in PROVIDERS:
         raise HTTPException(422, f"provider must be one of {', '.join(PROVIDERS)}")
+    if director and director not in DIRECTORS:
+        raise HTTPException(422, f"director must be one of {', '.join(DIRECTORS)}")
     job_id = uuid.uuid4().hex
     source = _save_upload(file, get_settings().uploads_dir, job_id)
     (get_settings().jobs_dir / job_id).mkdir(parents=True, exist_ok=True)
     build_book_task.apply_async(
         kwargs={"job_id": job_id, "source": str(source), "provider": provider,
-                "voice": voice, "max_chapters": max_chapters},
+                "voice": voice, "max_chapters": max_chapters, "director": director},
         task_id=job_id,
     )
     return get_job(job_id)

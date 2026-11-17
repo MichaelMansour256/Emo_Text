@@ -184,6 +184,19 @@ with **one hosted API + one self-hosted model**, and pick by blind listening tes
       They remain in git history; rewrite history if they must disappear from GitHub entirely.
 - [ ] Not done yet: moving the prototype into `legacy/`; Compose stack not yet run locally.
 
+### Second sprint — Director (see `backend/README.md` → Director and cast)
+- [x] Dialogue split from narration at paragraph level; each quotation has an id.
+- [x] Claude Director (`claude-opus-5-5`, structured JSON over ids, server-side refusal
+      fallback, on-disk cache, heuristic baseline for skipped quotes).
+- [x] Offline heuristic Director (tags, beats, pronouns, turn-taking, emotion lexicon).
+- [x] Casting: gender-aware, consistent voices per character; overrides via `--cast`.
+- [x] `script.json` per build; `emotext eval` with 3 labelled scenes (39 quotes).
+- [ ] Claude Director not yet run against the live API (no credentials in dev).
+- [ ] Eval set is small and self-written; replace with ~20 annotated public-domain chapters
+      before trusting the ≥ 90% target. The old BERT classifier was not reused: its
+      `friends-bert-base-uncased` weights are not in the repo or on the Hub.
+- [ ] Long books: the Director runs chapters sequentially; parallelise or use the Batches API.
+
 ---
 
 ## 8. Business model & metrics

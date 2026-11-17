@@ -7,9 +7,16 @@ import time
 import httpx
 
 from emotext.models import Line
-from emotext.tts.base import TTSError, TTSProvider
+from emotext.tts.base import TTSError, TTSProvider, VoiceInfo
 
 _API_URL = "https://api.openai.com/v1/audio/speech"
+# Perceived voice gender, approximate; only used to cast plausible voices.
+_VOICES = [
+    VoiceInfo("sage", "female"), VoiceInfo("ash", "male"), VoiceInfo("coral", "female"),
+    VoiceInfo("onyx", "male"), VoiceInfo("nova", "female"), VoiceInfo("echo", "male"),
+    VoiceInfo("shimmer", "female"), VoiceInfo("ballad", "male"), VoiceInfo("verse", "male"),
+    VoiceInfo("alloy"), VoiceInfo("fable"),
+]
 
 
 def delivery_instructions(line: Line) -> str:
@@ -38,10 +45,13 @@ class OpenAITTS(TTSProvider):
     def cache_key(self) -> str:
         return f"{super().cache_key()}:{self.model}"
 
+    def voices(self) -> list[VoiceInfo]:
+        return _VOICES
+
     def synthesize(self, line: Line) -> bytes:
         payload = {
             "model": self.model,
-            "voice": self.voice,
+            "voice": self.voice_for(line),
             "input": line.text,
             "instructions": delivery_instructions(line),
             "response_format": "wav",

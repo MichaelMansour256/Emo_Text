@@ -25,7 +25,41 @@ Output lands in `output/<book>/`: `chapters/NN - Title.mp3`, `<book>.m4b`, `mani
 | `openai` | `OPENAI_API_KEY` | yes | `gpt-4o-mini-tts`; emotion becomes delivery instructions. `--voice` e.g. `sage`, `ballad`. |
 | `tone` | nothing | no | Offline beeps sized to the text; used by tests and CI. |
 
-New engines implement `emotext.tts.base.TTSProvider` and register in `emotext/tts/__init__.py`.
+New engines implement `emotext.tts.base.TTSProvider` (including `voices()` for casting) and
+register in `emotext/tts/__init__.py`.
+
+## Director and cast
+
+The Director decides who says each quotation and how every line is performed; casting then
+gives each character a consistent voice from the engine's catalog (the narrator keeps the
+default voice).
+
+| `--director` | Needs | What it does |
+|--------------|-------|--------------|
+| `heuristic` (default) | nothing | dialogue tags, action beats, pronouns, turn-taking; keyword emotions |
+| `claude` | `ANTHROPIC_API_KEY` or `ant auth login` | Claude reads each chapter and returns speakers, emotion + intensity per quote, narration mood, and a character list. Only ids come back, so the text is never rewritten. Results are cached; any quote it skips keeps the heuristic answer. Model/effort: `EMOTEXT_DIRECTOR_MODEL` (default `claude-opus-5-5`), `EMOTEXT_DIRECTOR_EFFORT` (default `medium`). |
+| `none` | nothing | single narrator voice, no dialogue splitting |
+
+```bash
+emotext build book.epub --director claude --provider openai
+emotext build book.epub --cast cast.json     # {"Mara": "nova", "Dr. Hale": "onyx"}
+```
+
+Each build writes `script.json` (every line with speaker, emotion, intensity, voice) next to
+`manifest.json` (which records the character list and cast).
+
+### Eval
+
+`samples/eval/*.txt` are short scenes with a gold speaker label before every quotation
+(`{{Mara}}"Run," she said.`). Score a director with:
+
+```bash
+emotext eval --director heuristic -v
+```
+
+Current results: heuristic 89.7% (35/39), none 5.1%. These scenes were written alongside the
+heuristic, so treat them as a regression check rather than a measure of real-book accuracy;
+add passages from real (public-domain) books to make the number meaningful.
 
 ## API + worker
 
@@ -54,7 +88,8 @@ The API has **no authentication yet**; don't expose it publicly until accounts l
 
 Environment variables (or `.env`): `EMOTEXT_DATA_DIR`, `EMOTEXT_REDIS_URL`, `EMOTEXT_CELERY_EAGER`,
 `EMOTEXT_TTS_PROVIDER`, `EMOTEXT_TTS_VOICE`, `EMOTEXT_OPENAI_TTS_MODEL`, `EMOTEXT_MAX_UPLOAD_MB`,
-`OPENAI_API_KEY`.
+`EMOTEXT_DIRECTOR`, `EMOTEXT_DIRECTOR_MODEL`, `EMOTEXT_DIRECTOR_EFFORT`, `OPENAI_API_KEY`,
+`ANTHROPIC_API_KEY`. `POST /v1/jobs` also accepts a `director` form field.
 
 ## Tests
 

@@ -10,6 +10,7 @@ from dataclasses import asdict
 
 from celery import Celery
 
+from emotext.director import get_director
 from emotext.pipeline import build_book
 from emotext.settings import get_settings
 from emotext.tts import get_provider
@@ -38,7 +39,7 @@ celery_app.conf.update(
 @celery_app.task(bind=True, name="emotext.build_book")
 def build_book_task(
     self, job_id: str, source: str, provider: str | None = None, voice: str | None = None,
-    max_chapters: int | None = None,
+    max_chapters: int | None = None, director: str | None = None,
 ) -> dict:
     def progress(stage: str, done: int, total: int) -> None:
         self.update_state(state="PROGRESS", meta={"stage": stage, "done": done, "total": total})
@@ -47,6 +48,7 @@ def build_book_task(
         source,
         settings.jobs_dir / job_id,
         get_provider(provider, voice),
+        director=get_director(director, cache_dir=settings.data_dir / "cache" / "director"),
         max_chapters=max_chapters,
         cache_dir=settings.data_dir / "cache",
         progress=progress,
