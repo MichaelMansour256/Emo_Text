@@ -78,3 +78,13 @@ secrets.py
 
 # OS
 *.log
+# Personal files kept locally only
+1.pdf
+1.txt
+
+# Test/run artefacts
+.pytest_cache/
+pytest_out.txt
+test_results.txt
+data/
+.ruff_cache/

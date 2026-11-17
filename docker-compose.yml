@@ -1,0 +1,36 @@
+# Local stack: API on http://localhost:8000 (docs at /docs), one render worker, Redis.
+#   docker compose up --build
+# Set OPENAI_API_KEY in a .env file next to this one to use the OpenAI voices.
+# Postgres is added in sprint 3 together with accounts.
+
+x-backend: &backend
+  build: ./backend
+  environment:
+    EMOTEXT_REDIS_URL: redis://redis:6379/0
+    EMOTEXT_TTS_PROVIDER: ${EMOTEXT_TTS_PROVIDER:-gtts}
+    OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+  volumes:
+    - data:/data
+  depends_on:
+    redis:
+      condition: service_healthy
+
+services:
+  api:
+    <<: *backend
+    ports:
+      - "127.0.0.1:8000:8000"
+
+  worker:
+    <<: *backend
+    command: ["celery", "-A", "emotext.worker", "worker", "--loglevel=info", "--concurrency=2"]
+
+  redis:
+    image: redis:7-alpine
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      retries: 10
+
+volumes:
+  data:

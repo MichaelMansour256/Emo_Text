@@ -1,0 +1,51 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  backend:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        python-version: ["3.11", "3.12"]
+    defaults:
+      run:
+        working-directory: backend
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+          cache: pip
+          cache-dependency-path: backend/pyproject.toml
+      - name: Install ffmpeg
+        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends ffmpeg
+      - run: pip install -e ".[dev]"
+      - run: ruff check .
+      - run: pytest -q
+
+  legacy:
+    # The original graduation-project modules (PDF extraction, paths, GUI structure).
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - run: pip install pytest pypdf Pillow
+      - run: pytest -q tests --ignore=tests/test_gui.py
+      # test_gui.py stubs out PIL in sys.modules, so it runs in its own process.
+      # The two deselected tests import the BERT/easyOCR stack (torch), too heavy for CI.
+      - run: >
+          pytest -q tests/test_gui.py
+          --deselect tests/test_gui.py::test_no_second_tk_root_in_gui_alert_popup
+          --deselect tests/test_gui.py::test_add_image_gui_new_win_uses_toplevel
+
+  docker:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: docker build -t emotext-backend backend
