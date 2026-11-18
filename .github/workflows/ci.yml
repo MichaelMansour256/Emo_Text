@@ -44,8 +44,24 @@ jobs:
           --deselect tests/test_gui.py::test_no_second_tk_root_in_gui_alert_popup
           --deselect tests/test_gui.py::test_add_image_gui_new_win_uses_toplevel
 
+  web:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: web
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+      - run: npm ci --no-audit --no-fund
+      - run: npm run build
+
   docker:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
       - run: docker build -t emotext-backend backend
+      - run: docker build -t emotext-web web

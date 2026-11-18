@@ -197,6 +197,25 @@ with **one hosted API + one self-hosted model**, and pick by blind listening tes
       `friends-bert-base-uncased` weights are not in the repo or on the Hub.
 - [ ] Long books: the Director runs chapters sequentially; parallelise or use the Batches API.
 
+### Third sprint — web MVP (see `web/README.md`)
+- [x] Accounts, projects and an append-only credit ledger (SQLAlchemy; SQLite locally, Postgres
+      in Compose).
+- [x] Auth: dev header locally; JWT verification (JWKS or HS256) for Clerk or Supabase tokens.
+- [x] Project API: upload and parse, render with options, server-sent-event progress, signed
+      audio links, script, delete. Old unauthenticated `/v1/jobs` routes removed.
+- [x] Credits: 1 credit per word, free preview of the opening, automatic refund on failure;
+      Stripe Checkout and an idempotent signed webhook (no Stripe SDK).
+- [x] Next.js web app (`web/`): sign-in, library with drag-and-drop upload, project page with
+      render options and cost, live progress, player, M4B download, cast, credits page.
+- [x] Compose runs web + api + worker + redis + postgres.
+- [ ] Not done: a real sign-in UI (Clerk or Supabase) in the web app; dev sign-in only so far.
+      The backend side (`EMOTEXT_AUTH_MODE=jwt`) is ready and tested.
+- [ ] Not done: object storage (R2/S3). Audio is served from the data volume via signed links,
+      which keeps the swap to presigned R2 URLs small.
+- [ ] Progress uses server-sent events instead of WebSockets (one-way is all it needs).
+- [ ] Not verified: live progress with a real Celery worker (Docker unavailable here), and
+      Stripe against a real account (webhook logic is unit-tested).
+
 ---
 
 ## 8. Business model & metrics

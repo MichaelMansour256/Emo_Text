@@ -80,3 +80,13 @@ def test_openai_instructions_reflect_emotion():
     assert "sense of" not in delivery_instructions(Line("x"))
     text = delivery_instructions(Line("x", emotion="fear", intensity=0.9))
     assert "strong sense of fear" in text
+
+
+def test_preview_chapter_keeps_whole_opening_paragraphs():
+    from emotext.models import Chapter
+    from emotext.pipeline import preview_chapter
+
+    ch = Chapter("One", "\n\n".join(["word " * 100] * 5))
+    assert len(preview_chapter(ch, 250).text.split()) == 200
+    huge = preview_chapter(Chapter("One", "word " * 2000), 300)
+    assert len(huge.text.split()) == 300 and huge.text.endswith("…")
