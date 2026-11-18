@@ -6,15 +6,18 @@ Run locally with:  celery -A emotext.worker worker --loglevel=info
 
 from __future__ import annotations
 
+import logging
 from dataclasses import asdict
 
 from celery import Celery
 
+from emotext import db
 from emotext.director import get_director
 from emotext.pipeline import build_book
 from emotext.settings import get_settings
 from emotext.tts import get_provider
 
+log = logging.getLogger(__name__)
 settings = get_settings()
 
 celery_app = Celery("emotext")
@@ -36,21 +39,51 @@ celery_app.conf.update(
 )
 
 
-@celery_app.task(bind=True, name="emotext.build_book")
-def build_book_task(
-    self, job_id: str, source: str, provider: str | None = None, voice: str | None = None,
-    max_chapters: int | None = None, director: str | None = None,
-) -> dict:
+@celery_app.task(bind=True, name="emotext.render_project")
+def render_project_task(self, project_id: str) -> dict:
+    """Render a project and record the outcome on its row. Failed renders are refunded."""
+    with db.session() as s:
+        project = s.get(db.Project, project_id)
+        if project is None:
+            return {"error": "project deleted"}
+        project.status = "rendering"
+        s.commit()
+        opts = dict(project.render_options)
+        source, user_id, charged = project.source_path, project.user_id, project.charged
+
     def progress(stage: str, done: int, total: int) -> None:
         self.update_state(state="PROGRESS", meta={"stage": stage, "done": done, "total": total})
 
-    result = build_book(
-        source,
-        settings.jobs_dir / job_id,
-        get_provider(provider, voice),
-        director=get_director(director, cache_dir=settings.data_dir / "cache" / "director"),
-        max_chapters=max_chapters,
-        cache_dir=settings.data_dir / "cache",
-        progress=progress,
-    )
-    return asdict(result) | {"duration_s": round(result.duration_s, 2)}
+    try:
+        result = build_book(
+            source,
+            settings.jobs_dir / project_id,
+            get_provider(opts.get("provider"), opts.get("voice")),
+            director=get_director(opts.get("director"),
+                                  cache_dir=settings.data_dir / "cache" / "director"),
+            cast_overrides=opts.get("cast") or None,
+            max_chapters=opts.get("max_chapters"),
+            cache_dir=settings.data_dir / "cache",
+            progress=progress,
+            preview_words=settings.preview_words if opts.get("preview") else None,
+        )
+    except Exception as exc:
+        log.exception("Render of project %s failed", project_id)
+        with db.session() as s:
+            project = s.get(db.Project, project_id)
+            if project is not None:
+                project.status, project.error = "failed", f"{type(exc).__name__}: {exc}"
+            if charged:
+                s.add(db.CreditEntry(user_id=user_id, delta=charged, reason="refund",
+                                     project_id=project_id))
+            s.commit()
+        raise
+
+    summary = asdict(result) | {"duration_s": round(result.duration_s, 2),
+                                "preview": bool(opts.get("preview"))}
+    with db.session() as s:
+        project = s.get(db.Project, project_id)
+        if project is not None:
+            project.status, project.result, project.error = "done", summary, None
+            s.commit()
+    return summary

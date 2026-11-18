@@ -1,12 +1,16 @@
-# Local stack: API on http://localhost:8000 (docs at /docs), one render worker, Redis.
+# Local stack: web on http://localhost:3000, API on http://localhost:8000 (docs at /docs),
+# one render worker, Redis, Postgres.
 #   docker compose up --build
-# Set OPENAI_API_KEY in a .env file next to this one to use the OpenAI voices.
-# Postgres is added in sprint 3 together with accounts.
+# Put OPENAI_API_KEY / ANTHROPIC_API_KEY in a .env file next to this one for the OpenAI voices
+# and the Claude Director. Auth runs in dev mode here: never expose this stack publicly as is.
 
 x-backend: &backend
   build: ./backend
   environment:
     EMOTEXT_REDIS_URL: redis://redis:6379/0
+    EMOTEXT_DATABASE_URL: postgresql+psycopg://emotext:emotext@db:5432/emotext
+    EMOTEXT_SECRET_KEY: ${EMOTEXT_SECRET_KEY:-dev-insecure-change-me}
+    ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
     EMOTEXT_TTS_PROVIDER: ${EMOTEXT_TTS_PROVIDER:-gtts}
     OPENAI_API_KEY: ${OPENAI_API_KEY:-}
   volumes:
@@ -14,8 +18,17 @@ x-backend: &backend
   depends_on:
     redis:
       condition: service_healthy
+    db:
+      condition: service_healthy
 
 services:
+  web:
+    build: ./web
+    ports:
+      - "127.0.0.1:3000:3000"
+    depends_on:
+      - api
+
   api:
     <<: *backend
     ports:
@@ -32,5 +45,19 @@ services:
       interval: 5s
       retries: 10
 
+  db:
+    image: postgres:17-alpine
+    environment:
+      POSTGRES_USER: emotext
+      POSTGRES_PASSWORD: emotext
+      POSTGRES_DB: emotext
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD", "pg_isready", "-U", "emotext"]
+      interval: 5s
+      retries: 10
+
 volumes:
   data:
+  pgdata:

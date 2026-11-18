@@ -64,32 +64,50 @@ add passages from real (public-domain) books to make the number meaningful.
 ## API + worker
 
 ```bash
-docker compose up --build        # from the repo root; API docs at http://localhost:8000/docs
+docker compose up --build        # from the repo root: web on :3000, API docs on :8000/docs
 ```
 
 Without Docker, run jobs inline (no Redis):
 
 ```bash
-EMOTEXT_CELERY_EAGER=true uvicorn emotext.api:app --reload
+EMOTEXT_CELERY_EAGER=true uvicorn emotext.api:app --app-dir backend --reload
 ```
+
+Every `/v1` route needs a user, except signed file links and the Stripe webhook.
 
 | Endpoint | Purpose |
 |----------|---------|
 | `GET /health` | liveness |
-| `POST /v1/books/inspect` | upload a file, get detected chapters (no audio) |
-| `POST /v1/jobs` | upload a file (+ `provider`, `voice`, `max_chapters`), queue rendering |
-| `GET /v1/jobs/{id}` | status, progress, and result manifest |
-| `GET /v1/jobs/{id}/files/{path}` | download a chapter MP3 or the M4B |
-| `DELETE /v1/jobs/{id}` | delete a job and its files |
+| `GET /v1/me` | the caller and their credit balance (accounts are created on first call) |
+| `GET /v1/options` | engines (with voices, and why one is unavailable), directors, credit packs |
+| `POST /v1/projects` | upload a book; it is parsed at once (chapters, word counts) |
+| `GET /v1/projects`, `GET /v1/projects/{id}` | list / detail, including progress and signed audio links |
+| `POST /v1/projects/{id}/render` | `{provider, voice, director, max_chapters, preview, cast}`: charges credits and queues the render |
+| `GET /v1/projects/{id}/events` | server-sent events with status and progress until the render ends |
+| `GET /v1/projects/{id}/script` | every rendered line with speaker, emotion and voice |
+| `GET /v1/projects/{id}/files/{path}?expires=&sig=` | signed download, so `<audio>` needs no auth header |
+| `DELETE /v1/projects/{id}` | delete the project, its upload and its audio |
+| `GET /v1/billing/ledger`, `POST /v1/billing/checkout`, `POST /v1/billing/webhook` | credit history, Stripe Checkout, Stripe webhook |
 
-The API has **no authentication yet**; don't expose it publicly until accounts land.
+### Accounts and auth
 
-## Settings
+`EMOTEXT_AUTH_MODE=dev` (default) trusts an `X-Dev-User: email` header: for local use only.
+For anything reachable from the internet use `EMOTEXT_AUTH_MODE=jwt` with your auth provider's
+tokens, verified with either `EMOTEXT_AUTH_JWKS_URL` (Clerk, Supabase: RS256/ES256) or
+`EMOTEXT_AUTH_JWT_SECRET` (Supabase legacy HS256), plus optional `EMOTEXT_AUTH_AUDIENCE` /
+`EMOTEXT_AUTH_ISSUER`. Set `EMOTEXT_SECRET_KEY` to a long random value: it signs audio links.
 
-Environment variables (or `.env`): `EMOTEXT_DATA_DIR`, `EMOTEXT_REDIS_URL`, `EMOTEXT_CELERY_EAGER`,
-`EMOTEXT_TTS_PROVIDER`, `EMOTEXT_TTS_VOICE`, `EMOTEXT_OPENAI_TTS_MODEL`, `EMOTEXT_MAX_UPLOAD_MB`,
-`EMOTEXT_DIRECTOR`, `EMOTEXT_DIRECTOR_MODEL`, `EMOTEXT_DIRECTOR_EFFORT`, `OPENAI_API_KEY`,
-`ANTHROPIC_API_KEY`. `POST /v1/jobs` also accepts a `director` form field.
+Accounts, projects and the credit ledger live in `EMOTEXT_DATABASE_URL` (default SQLite in the
+data dir; Compose uses Postgres). Tables are created at startup; add Alembic before the first
+schema change in production.
+
+### Credits
+
+One credit renders one word. New accounts get `EMOTEXT_SIGNUP_CREDITS` (20,000). The preview
+(the opening ~`EMOTEXT_PREVIEW_WORDS` words of chapter 1) is free, and a failed render is
+refunded automatically. Packs are sold through Stripe Checkout when `EMOTEXT_STRIPE_SECRET_KEY`
+and `EMOTEXT_STRIPE_WEBHOOK_SECRET` are set; point a Stripe webhook for
+`checkout.session.completed` at `/v1/billing/webhook`. Grants are idempotent per event.
 
 ## Tests
 

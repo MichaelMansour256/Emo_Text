@@ -17,7 +17,7 @@ from emotext.casting import Cast
 from emotext.director import Director, Roster
 from emotext.director.base import NoDirector
 from emotext.ingest import load_document
-from emotext.models import Line
+from emotext.models import Chapter, Line
 from emotext.segment import build_lines
 from emotext.tts import TTSProvider
 
@@ -54,6 +54,22 @@ class BuildResult:
 def safe_filename(name: str, max_len: int = 60) -> str:
     cleaned = re.sub(r'[<>:"/\\|?*\x00-\x1f]', "", name).strip().strip(".")
     return re.sub(r"\s+", " ", cleaned)[:max_len] or "untitled"
+
+
+def preview_chapter(chapter: Chapter, words: int) -> Chapter:
+    """The opening of a chapter: whole paragraphs until about ``words`` words."""
+    kept: list[str] = []
+    count = 0
+    for para in chapter.text.split("\n\n"):
+        n = len(para.split())
+        if kept and count + n > words:
+            break
+        if not kept and n > words * 2:  # one huge paragraph: cut it at a word boundary
+            para = " ".join(para.split()[:words]) + "…"
+            n = words
+        kept.append(para)
+        count += n
+    return Chapter(title=chapter.title, text="\n\n".join(kept))
 
 
 def _line_hash(provider: TTSProvider, line: Line) -> str:
@@ -98,7 +114,13 @@ def build_book(
     cache_dir: str | Path | None = None,
     make_m4b: bool = True,
     progress: ProgressFn | None = None,
+    preview_words: int | None = None,
 ) -> BuildResult:
+    """Render ``source`` into ``out_dir``.
+
+    ``preview_words`` renders only the opening of the first chapter (whole paragraphs,
+    about that many words) and skips the M4B: the free sample shown before paying.
+    """
     out_dir = Path(out_dir)
     work = out_dir / "work"
     chapters_dir = out_dir / "chapters"
@@ -114,6 +136,9 @@ def build_book(
     report("ingest", 0, 1)
     book = load_document(source)
     chapters = book.chapters[:max_chapters] if max_chapters else book.chapters
+    if preview_words:
+        chapters = [preview_chapter(book.chapters[0], preview_words)] if book.chapters else []
+        make_m4b = False
     for ch in chapters:
         build_lines(ch, max_chars=provider.max_chars, dialogue=director.name != "none")
     total = sum(len(ch.lines) for ch in chapters)
