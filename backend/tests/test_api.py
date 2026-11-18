@@ -20,10 +20,10 @@ def as_user(email: str | None = None) -> dict:
     return {"X-Dev-User": email or f"{uuid.uuid4().hex[:8]}@test"}
 
 
-def upload(path, headers, name=None):
+def upload(path, headers, name=None, rights=True):
     with path.open("rb") as fh:
         return client.post("/v1/projects", files={"file": (name or path.name, fh)},
-                           headers=headers)
+                           data={"rights_confirmed": str(rights).lower()}, headers=headers)
 
 
 def test_health():
@@ -55,7 +55,8 @@ def test_upload_parses_chapters_and_is_private(sample_pdf):
 
 
 def test_rejects_unsupported_type():
-    resp = client.post("/v1/projects", files={"file": ("x.exe", b"MZ")}, headers=as_user())
+    resp = client.post("/v1/projects", files={"file": ("x.exe", b"MZ")},
+                       data={"rights_confirmed": "true"}, headers=as_user())
     assert resp.status_code == 415
 
 
@@ -179,3 +180,40 @@ def test_untitled_text_upload_is_named_after_the_file(sample_txt):
     project = upload(sample_txt, as_user(), name="my_great_novel.txt").json()
     assert project["title"] == "my great novel"
     assert project["chapters"][0]["title"] != project["id"]
+
+
+# -- limits ------------------------------------------------------------------------------------
+
+
+def test_upload_requires_rights_confirmation(sample_txt):
+    assert upload(sample_txt, as_user(), rights=False).status_code == 422
+
+
+def test_daily_upload_limit(sample_txt, monkeypatch):
+    monkeypatch.setattr(get_settings(), "max_uploads_per_day", 1)
+    user = as_user()
+    assert upload(sample_txt, user).status_code == 201
+    assert upload(sample_txt, user).status_code == 429
+
+
+def test_book_word_limit(sample_txt, monkeypatch):
+    monkeypatch.setattr(get_settings(), "max_book_words", 10)
+    assert upload(sample_txt, as_user()).status_code == 413
+
+
+def test_concurrent_render_limit(sample_txt, monkeypatch):
+    from emotext import db
+
+    monkeypatch.setattr(get_settings(), "max_active_renders", 1)
+    user = as_user()
+    busy, other = (upload(sample_txt, user).json()["id"] for _ in range(2))
+    with db.session() as s:
+        s.get(db.Project, busy).status = "rendering"
+        s.commit()
+    resp = client.post(f"/v1/projects/{other}/render", headers=user,
+                       json={"provider": "tone", "preview": True})
+    assert resp.status_code == 429
+
+
+def test_ready_checks_the_database():
+    assert client.get("/ready").json() == {"status": "ready"}

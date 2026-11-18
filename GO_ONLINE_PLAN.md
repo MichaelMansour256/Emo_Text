@@ -216,6 +216,22 @@ with **one hosted API + one self-hosted model**, and pick by blind listening tes
 - [ ] Not verified: live progress with a real Celery worker (Docker unavailable here), and
       Stripe against a real account (webhook logic is unit-tested).
 
+### Fourth sprint — go live (see `DEPLOY.md`)
+- [x] Alembic migrations (run at startup and as Fly's release command); a test catches
+      model/migration drift, and sprint-3 databases are adopted automatically.
+- [x] Storage layer: local disk or any S3-compatible bucket (R2); presigned download URLs.
+- [x] Abuse limits per user (uploads per day, concurrent renders, book size) and a recorded
+      rights confirmation on every upload.
+- [x] Sentry for API and worker (no request bodies); `/ready` health check.
+- [x] Clerk sign-in in the web app (falls back to dev sign-in without keys); Terms and Privacy
+      drafts.
+- [x] Deploy config: Fly.io (`backend/fly.toml`: API + worker), Vercel for the web app, a CI job
+      that deploys the API when `FLY_API_TOKEN` is set, and a step-by-step `DEPLOY.md`.
+- [ ] Waiting on accounts: Clerk, Cloudflare R2, Postgres, Redis, Fly.io, Vercel, Stripe, Sentry.
+- [ ] Not verified: Clerk sign-in against a real Clerk app, R2 itself (tested against a mocked
+      S3), and the deploy itself.
+- [ ] Terms and Privacy are drafts for the beta, not legal advice.
+
 ---
 
 ## 8. Business model & metrics

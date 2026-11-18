@@ -67,6 +67,14 @@ def _eval(args: argparse.Namespace) -> int:
     return 0
 
 
+def _db(args: argparse.Namespace) -> int:
+    from emotext import db
+
+    db.get_engine()  # migrates to head
+    print(f"database is up to date: {db.get_settings().db_url.split('@')[-1]}")
+    return 0
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(prog="emotext", description="AI audiobook builder")
     sub = parser.add_subparsers(dest="command", required=True)
@@ -93,6 +101,10 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("--director", choices=DIRECTORS)
     p.add_argument("-v", "--verbose", action="store_true", help="list every miss")
     p.set_defaults(func=_eval)
+
+    p = sub.add_parser("db", help="database maintenance")
+    p.add_argument("action", choices=["upgrade"], help="upgrade: apply pending migrations")
+    p.set_defaults(func=_db)
 
     args = parser.parse_args(argv)
     logging.basicConfig(level=logging.INFO, format="%(levelname)s %(message)s")

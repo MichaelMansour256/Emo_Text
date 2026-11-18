@@ -428,3 +428,36 @@ audio {
   flex-direction: column;
   gap: 8px;
 }
+
+.consent {
+  flex-direction: row;
+  align-items: flex-start;
+  gap: 10px;
+  font-weight: 400;
+  margin-bottom: 12px;
+}
+
+.consent input {
+  width: auto;
+  margin-top: 4px;
+}
+
+.dropzone.locked {
+  opacity: 0.6;
+}
+
+.footer {
+  max-width: 860px;
+  margin: 0 auto;
+  padding: 0 16px 40px;
+  display: flex;
+  gap: 16px;
+}
+
+.prose {
+  max-width: 42em;
+}
+
+.prose h2 {
+  margin-top: 1.6rem;
+}
