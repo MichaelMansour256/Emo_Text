@@ -6,19 +6,20 @@ Every /v1 route except signed file links and the Stripe webhook needs a user (se
 from __future__ import annotations
 
 import json
-import shutil
+import tempfile
 import time
 import uuid
 from collections.abc import Iterator
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from urllib.parse import quote
 
 from celery.result import AsyncResult
-from fastapi import Depends, FastAPI, Header, HTTPException, Request, UploadFile
+from fastapi import Depends, FastAPI, Form, Header, HTTPException, Request, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse, StreamingResponse
+from fastapi.responses import FileResponse, RedirectResponse, Response, StreamingResponse
 from pydantic import BaseModel, Field
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from emotext import __version__, db
@@ -26,7 +27,9 @@ from emotext.auth import check_signature, current_user, sign_path
 from emotext.billing import BillingError, create_checkout, handle_event, verify_webhook
 from emotext.director import DIRECTORS
 from emotext.ingest import SUPPORTED_EXTENSIONS, DocumentError, load_document
+from emotext.observability import init_sentry
 from emotext.settings import get_settings
+from emotext.storage import get_storage
 from emotext.tts import PROVIDERS, TTSError, get_provider
 from emotext.worker import celery_app, render_project_task
 
@@ -34,6 +37,7 @@ if get_settings().auth_mode != "dev" and get_settings().secret_key == "dev-insec
     raise RuntimeError("Set EMOTEXT_SECRET_KEY to a long random value outside dev mode: "
                        "it signs the audio download links.")
 
+init_sentry("api")
 app = FastAPI(title="Emo_Text API", version=__version__)
 app.add_middleware(
     CORSMiddleware,
@@ -100,7 +104,13 @@ def _own_project(database: Session, user: db.User, project_id: str) -> db.Projec
 
 
 def _file_url(project_id: str, file: str) -> str:
-    signed = sign_path(f"{project_id}/{file}")
+    """A link the browser can use without auth headers: a presigned bucket URL, or a signed
+    API path when files are on the local disk."""
+    ttl = get_settings().download_ttl_s
+    direct = get_storage().presigned_url(f"jobs/{project_id}/{file}", Path(file).name, ttl)
+    if direct:
+        return direct
+    signed = sign_path(f"{project_id}/{file}", ttl)
     _, _, query = signed.partition("?")
     return f"/v1/projects/{project_id}/files/{quote(file)}?{query}"
 
@@ -153,7 +163,19 @@ def project_out(project: db.Project, detail: bool = False) -> dict:
 
 @app.get("/health")
 def health() -> dict:
+    """Liveness: the process is up."""
     return {"status": "ok", "version": __version__}
+
+
+@app.get("/ready")
+def ready() -> dict:
+    """Readiness: the database answers (used by the platform's health checks)."""
+    try:
+        with db.session() as s:
+            s.execute(select(1))
+    except Exception as exc:
+        raise HTTPException(503, f"database unavailable: {type(exc).__name__}") from exc
+    return {"status": "ready"}
 
 
 @app.get("/v1/me", response_model=Me)
@@ -192,22 +214,43 @@ def options() -> dict:
 
 
 @app.post("/v1/projects", status_code=201)
-def create_project(file: UploadFile, user: db.User = Depends(current_user),
+def create_project(file: UploadFile, rights_confirmed: bool = Form(False),
+                   user: db.User = Depends(current_user),
                    database: Session = Depends(db.get_db)) -> dict:
-    """Upload a book. It is parsed now (chapters, word counts); rendering is a separate step."""
+    """Upload a book. It is parsed now (chapters, word counts); rendering is a separate step.
+
+    The uploader must confirm they have the right to turn the book into audio.
+    """
+    s = get_settings()
+    if not rights_confirmed:
+        raise HTTPException(422, "Please confirm you have the rights to this book "
+                                 "(rights_confirmed=true).")
+    since = datetime.now(timezone.utc) - timedelta(days=1)
+    recent = database.scalar(select(func.count()).select_from(db.Project).where(
+        db.Project.user_id == user.id, db.Project.created_at >= since))
+    if recent >= s.max_uploads_per_day:
+        raise HTTPException(429, f"Upload limit reached ({s.max_uploads_per_day} per day). "
+                                 "Try again tomorrow.")
+
     project_id = uuid.uuid4().hex
-    source = _save_upload(file, get_settings().uploads_dir, project_id)
-    try:
-        book = load_document(source)
-    except DocumentError as exc:
-        source.unlink(missing_ok=True)
-        raise HTTPException(422, str(exc)) from exc
+    with tempfile.TemporaryDirectory() as tmp:
+        source = _save_upload(file, Path(tmp), project_id)
+        try:
+            book = load_document(source)
+        except DocumentError as exc:
+            raise HTTPException(422, str(exc)) from exc
+        if book.word_count > s.max_book_words:
+            raise HTTPException(413, f"This book has {book.word_count:,} words; the limit is "
+                                     f"{s.max_book_words:,}.")
+        key = f"uploads/{source.name}"
+        get_storage().put_file(key, source)
     title = book.title
     if title == project_id:  # no title in the file: it fell back to our storage name
         title = Path(file.filename or "Untitled").stem.replace("_", " ").strip() or "Untitled"
     project = db.Project(
         id=project_id, user_id=user.id, title=title, author=book.author,
-        filename=file.filename or source.name, source_path=str(source), words=book.word_count,
+        filename=file.filename or source.name, source_path=key, words=book.word_count,
+        rights_confirmed_at=datetime.now(timezone.utc),
         chapters=[{"index": i, "title": title if c.title == project_id else c.title,
                    "words": len(c.text.split()),
                    "preview": c.text[:240]} for i, c in enumerate(book.chapters, start=1)],
@@ -247,6 +290,12 @@ def render_project(project_id: str, req: RenderRequest, user: db.User = Depends(
     except TTSError as exc:
         raise HTTPException(422, str(exc)) from exc
 
+    active = database.scalar(select(func.count()).select_from(db.Project).where(
+        db.Project.user_id == user.id, db.Project.status.in_(ACTIVE)))
+    if active >= get_settings().max_active_renders:
+        raise HTTPException(429, "You already have the maximum number of books rendering. "
+                                 "Wait for one to finish.")
+
     cost = _render_cost(project, req)
     available = db.balance(database, user.id)
     if cost > available:
@@ -254,7 +303,7 @@ def render_project(project_id: str, req: RenderRequest, user: db.User = Depends(
     if cost:
         database.add(db.CreditEntry(user_id=user.id, delta=-cost, reason="render",
                                     project_id=project.id))
-    shutil.rmtree(get_settings().jobs_dir / project.id, ignore_errors=True)
+    get_storage().delete_prefix(f"jobs/{project.id}")
     project.status, project.error, project.result = "queued", None, None
     project.render_options = req.model_dump()
     project.charged = cost
@@ -301,21 +350,32 @@ def project_script(project_id: str, user: db.User = Depends(current_user),
                    database: Session = Depends(db.get_db)) -> list:
     """Every rendered line with its speaker, emotion and voice (for the line editor)."""
     _own_project(database, user, project_id)
-    path = get_settings().jobs_dir / project_id / "script.json"
-    if not path.is_file():
+    data = get_storage().read_bytes(f"jobs/{project_id}/script.json")
+    if data is None:
         raise HTTPException(404, "Not rendered yet")
-    return json.loads(path.read_text(encoding="utf-8"))
+    return json.loads(data)
 
 
 @app.get("/v1/projects/{project_id}/files/{file_path:path}")
-def download(project_id: str, file_path: str, expires: int = 0, sig: str = "") -> FileResponse:
-    """Signed link (from the project's result), so <audio> can stream without auth headers."""
+def download(project_id: str, file_path: str, expires: int = 0, sig: str = "") -> Response:
+    """Signed link (from the project's result), so <audio> can stream without auth headers.
+
+    With bucket storage the result already carries presigned URLs; this route then redirects.
+    """
     if not check_signature(f"{project_id}/{file_path}", expires, sig):
         raise HTTPException(403, "Link expired or invalid")
-    job_dir = (get_settings().jobs_dir / project_id).resolve()
-    target = (job_dir / file_path).resolve()
-    if (not target.is_relative_to(job_dir) or not target.is_file()
-            or "work" in target.relative_to(job_dir).parts):
+    if "work" in Path(file_path).parts or ".." in Path(file_path).parts:
+        raise HTTPException(404, "File not found")
+    key = f"jobs/{project_id}/{file_path}"
+    storage = get_storage()
+    direct = storage.presigned_url(key, Path(file_path).name, 300)
+    if direct:
+        return RedirectResponse(direct, status_code=307)
+    try:
+        target = storage.local_file(key)
+    except ValueError:
+        target = None
+    if target is None:
         raise HTTPException(404, "File not found")
     return FileResponse(target, filename=target.name)
 
@@ -326,8 +386,9 @@ def delete_project(project_id: str, user: db.User = Depends(current_user),
     project = _own_project(database, user, project_id)
     if project.status in ACTIVE and project.job_id:
         AsyncResult(project.job_id, app=celery_app).revoke()
-    shutil.rmtree(get_settings().jobs_dir / project.id, ignore_errors=True)
-    Path(project.source_path).unlink(missing_ok=True)
+    storage = get_storage()
+    storage.delete_prefix(f"jobs/{project.id}")
+    storage.delete(project.source_path)
     database.delete(project)
     database.commit()
 

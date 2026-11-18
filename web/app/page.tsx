@@ -16,7 +16,7 @@ export default function Home() {
 }
 
 function Welcome({ error }: { error: string | null }) {
-  const { signIn } = useSession();
+  const { signIn, mode } = useSession();
   const [email, setEmail] = useState("");
   return (
     <section className="hero">
@@ -25,6 +25,15 @@ function Welcome({ error }: { error: string | null }) {
         Upload a PDF or EPUB. Emo_Text finds the chapters, works out who is speaking, gives every
         character their own voice and reads each line with the right emotion.
       </p>
+      {mode === "clerk" ? (
+        <div className="signin">
+          <button className="primary" onClick={() => signIn("")}>
+            Sign in or create an account
+          </button>
+          <p className="small muted">New accounts get free credits to try it.</p>
+          {error && <p className="error">{error}</p>}
+        </div>
+      ) : (
       <form
         className="signin card"
         onSubmit={(e) => {
@@ -51,6 +60,7 @@ function Welcome({ error }: { error: string | null }) {
         </p>
         {error && <p className="error">{error}</p>}
       </form>
+      )}
       <ul className="features">
         <li>
           <strong>AI Director</strong>
@@ -75,6 +85,7 @@ function Library() {
   const [error, setError] = useState<string | null>(null);
   const [uploading, setUploading] = useState(false);
   const [dragging, setDragging] = useState(false);
+  const [rights, setRights] = useState(false);
   const input = useRef<HTMLInputElement>(null);
 
   const load = useCallback(async () => {
@@ -91,10 +102,14 @@ function Library() {
 
   async function upload(file: File | undefined) {
     if (!file) return;
+    if (!rights) {
+      setError("Please confirm you have the rights to this book first.");
+      return;
+    }
     setUploading(true);
     setError(null);
     try {
-      const project = await api.upload(file);
+      const project = await api.upload(file, rights);
       router.push(`/projects/${project.id}`);
     } catch (e) {
       setError(e instanceof ApiError ? e.message : String(e));
@@ -104,8 +119,16 @@ function Library() {
 
   return (
     <>
+      <label className="consent">
+        <input type="checkbox" checked={rights} onChange={(e) => setRights(e.target.checked)} />
+        <span>
+          I own this book or have permission to turn it into audio, and I agree to the{" "}
+          <Link href="/terms">Terms</Link>.
+        </span>
+      </label>
       <div
-        className={`dropzone ${dragging ? "dragging" : ""}`}
+        className={`dropzone ${dragging ? "dragging" : ""} ${rights ? "" : "locked"}`}
+        aria-disabled={!rights}
         role="button"
         tabIndex={0}
         onClick={() => input.current?.click()}

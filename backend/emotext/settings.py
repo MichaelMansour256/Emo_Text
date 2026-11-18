@@ -58,6 +58,25 @@ class Settings(BaseSettings):
     }
     public_url: str = "http://localhost:3000"
 
+    # Files: "local" (the data dir) or "s3" (any S3-compatible bucket; for Cloudflare R2 set
+    # the endpoint to https://<account id>.r2.cloudflarestorage.com and region "auto").
+    storage_backend: str = "local"
+    s3_bucket: str | None = None
+    s3_endpoint_url: str | None = None
+    s3_region: str = "auto"
+    s3_access_key_id: str | None = None
+    s3_secret_access_key: str | None = None
+    download_ttl_s: int = 6 * 3600
+
+    # Abuse limits, per user.
+    max_active_renders: int = 2
+    max_uploads_per_day: int = 20
+    max_book_words: int = 400_000
+
+    # Error reporting (Sentry); unset disables it.
+    sentry_dsn: str | None = None
+    environment: str = "development"
+
     @property
     def uploads_dir(self) -> Path:
         return self.data_dir / "uploads"

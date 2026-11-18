@@ -1,7 +1,9 @@
 """Accounts, projects and the credit ledger (SQLAlchemy 2.0).
 
-Tables are created on startup with ``create_all``; switch to Alembic migrations before the
-first schema change in production.
+The schema is managed by Alembic (``emotext/migrations``). Migrations run on startup; to change
+the schema, edit the models and add a revision:
+
+    cd backend && alembic revision --autogenerate -m "what changed"
 """
 
 from __future__ import annotations
@@ -10,6 +12,7 @@ import uuid
 from collections.abc import Iterator
 from datetime import datetime, timezone
 from functools import lru_cache
+from pathlib import Path
 
 from sqlalchemy import (
     JSON,
@@ -20,7 +23,9 @@ from sqlalchemy import (
     Text,
     create_engine,
     func,
+    inspect,
     select,
+    text,
 )
 from sqlalchemy.engine import Engine
 from sqlalchemy.exc import IntegrityError
@@ -59,6 +64,7 @@ class Project(Base):
     title: Mapped[str] = mapped_column(String(500))
     author: Mapped[str | None] = mapped_column(String(500))
     filename: Mapped[str] = mapped_column(String(500))
+    # Storage key of the uploaded file (see storage.py), e.g. "uploads/<id>.epub".
     source_path: Mapped[str] = mapped_column(Text)
     words: Mapped[int] = mapped_column(Integer, default=0)
     chapters: Mapped[list] = mapped_column(JSON, default=list)
@@ -69,6 +75,7 @@ class Project(Base):
     charged: Mapped[int] = mapped_column(Integer, default=0)
     result: Mapped[dict | None] = mapped_column(JSON)
     error: Mapped[str | None] = mapped_column(Text)
+    rights_confirmed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_now)
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_now,
                                                  onupdate=_now)
@@ -97,8 +104,34 @@ def get_engine() -> Engine:
         engine = create_engine(url, connect_args={"check_same_thread": False})
     else:
         engine = create_engine(url, pool_pre_ping=True)
-    Base.metadata.create_all(engine)
+    migrate(engine)
     return engine
+
+
+def alembic_config():
+    from alembic.config import Config
+
+    cfg = Config()
+    cfg.set_main_option("script_location", str(Path(__file__).parent / "migrations"))
+    cfg.set_main_option("sqlalchemy.url", get_settings().db_url)
+    return cfg
+
+
+def migrate(engine: Engine, revision: str = "head") -> None:
+    """Bring the schema up to date. Safe to run from several processes at startup on
+    Postgres (an advisory lock serialises them)."""
+    from alembic import command
+
+    cfg = alembic_config()
+    with engine.begin() as conn:
+        if conn.dialect.name == "postgresql":
+            conn.execute(text("SELECT pg_advisory_xact_lock(7313)"))
+        tables = set(inspect(conn).get_table_names())
+        cfg.attributes["connection"] = conn
+        if "users" in tables and "alembic_version" not in tables:
+            # Created by create_all before migrations existed (sprint 3): adopt it.
+            command.stamp(cfg, "0001")
+        command.upgrade(cfg, revision)
 
 
 @lru_cache

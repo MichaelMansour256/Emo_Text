@@ -13,6 +13,8 @@ eggs/
 .eggs/
 parts/
 lib/
+# ...but the web app keeps its own code in web/lib
+!web/lib/
 lib64/
 parts/
 sdist/
