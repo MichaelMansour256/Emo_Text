@@ -20,6 +20,9 @@ class Settings(BaseSettings):
     # Read without the EMOTEXT_ prefix so the standard variable name works.
     openai_api_key: str | None = Field(default=None, validation_alias="OPENAI_API_KEY")
     openai_tts_model: str = "gpt-4o-mini-tts"
+    # Listening checks: transcribe rendered lines and flag mismatches (opt-in per render).
+    qa_transcriber: str = "openai"
+    openai_transcribe_model: str = "gpt-4o-mini-transcribe"
 
     # Who decides speakers and emotions: none | heuristic | claude.
     # The Claude client reads ANTHROPIC_API_KEY or an `ant auth login` profile itself.

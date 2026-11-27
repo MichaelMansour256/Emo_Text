@@ -170,3 +170,18 @@ def test_unknown_speaker_never_shares_a_voice_while_others_are_free():
     cast = Cast(get_provider("tone", voice="mid"))
     lina = cast.voice_for("Lina", roster)
     assert cast.voice_for(UNKNOWN_SPEAKER, roster) not in (lina, "mid")
+
+
+def test_pronoun_tag_resolves_to_a_name_mentioned_mid_sentence():
+    ch = chapter("The lighthouse stood at the end of the world, or so it seemed to Nadia. "
+                 'Every night she climbed the steps. "Will anyone ever come?" she asked the gulls.')
+    roster = Roster()
+    HeuristicDirector().direct(ch, roster)
+    assert [ln.speaker for ln in ch.lines if ln.kind == "dialogue"] == ["Nadia"]
+
+
+def test_places_named_mid_sentence_do_not_become_characters():
+    ch = chapter('Mara walked to Paris in the rain. "I am tired," Mara said.')
+    roster = Roster()
+    HeuristicDirector().direct(ch, roster)
+    assert [c.name for c in roster] == ["Mara"]

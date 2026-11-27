@@ -461,3 +461,100 @@ audio {
 .prose h2 {
   margin-top: 1.6rem;
 }
+
+.actions.tight {
+  margin-top: 8px;
+  align-items: center;
+}
+
+.inline-check {
+  flex-direction: row;
+  align-items: center;
+  gap: 8px;
+  font-weight: 400;
+  margin-top: 14px;
+}
+
+.inline-check input {
+  width: auto;
+}
+
+.editor-bar {
+  position: sticky;
+  top: 8px;
+  z-index: 2;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+  margin: 16px 0;
+}
+
+.editor-bar .inline-check {
+  margin-top: 0;
+}
+
+.editor-filters {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+  gap: 12px;
+  margin: 16px 0;
+}
+
+.lines {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.line textarea {
+  font: inherit;
+  width: 100%;
+  resize: vertical;
+  padding: 8px 10px;
+  border-radius: 8px;
+  border: 1px solid var(--border);
+  background: var(--bg);
+  color: var(--text);
+}
+
+.line-controls {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+  gap: 10px;
+  margin-top: 8px;
+}
+
+.line-controls input[type="range"] {
+  padding: 0;
+  accent-color: var(--accent);
+}
+
+.line.changed {
+  border-left: 4px solid var(--accent);
+}
+
+.line.flagged {
+  border-color: var(--error);
+}
+
+.qa-note {
+  color: var(--error);
+  margin: 8px 0 0;
+}
+
+.pronunciations {
+  margin: 16px 0;
+}
+
+.pron-row {
+  margin-top: 8px;
+}
+
+.pron-row button {
+  flex: none;
+}

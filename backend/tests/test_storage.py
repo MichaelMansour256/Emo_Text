@@ -55,7 +55,7 @@ def test_bucket_storage_end_to_end(s3, sample_txt):
 
     url = done["result"]["chapters"][0]["url"]
     assert url.startswith("https://books.s3") and "X-Amz-Signature" in url
-    assert client.get(f"/v1/projects/{pid}/script", headers=user).json()[0]["lines"]
+    assert client.get(f"/v1/projects/{pid}/script", headers=user).json()["chapters"][0]["lines"]
 
     assert client.delete(f"/v1/projects/{pid}", headers=user).status_code == 204
     assert not {k for k in keys() if pid in k}

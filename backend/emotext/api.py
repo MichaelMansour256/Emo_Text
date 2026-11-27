@@ -22,12 +22,14 @@ from pydantic import BaseModel, Field
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
-from emotext import __version__, db
+from emotext import __version__, db, lexicon
 from emotext.auth import check_signature, current_user, sign_path
 from emotext.billing import BillingError, create_checkout, handle_event, verify_webhook
 from emotext.director import DIRECTORS
 from emotext.ingest import SUPPORTED_EXTENSIONS, DocumentError, load_document
+from emotext.models import EMOTIONS
 from emotext.observability import init_sentry
+from emotext.qa import QAError, get_transcriber
 from emotext.settings import get_settings
 from emotext.storage import get_storage
 from emotext.tts import PROVIDERS, TTSError, get_provider
@@ -67,6 +69,27 @@ class RenderRequest(BaseModel):
     max_chapters: int | None = Field(None, ge=1)
     preview: bool = False
     cast: dict[str, str] = Field(default_factory=dict)
+    #: Transcribe every rendered line and flag mismatches (needs a transcriber, e.g. OpenAI).
+    qa: bool = False
+
+
+class RerenderRequest(BaseModel):
+    qa: bool | None = None  # default: whatever the last render did
+
+
+class LineEdit(BaseModel):
+    speaker: str | None = Field(None, min_length=1, max_length=80)
+    emotion: str | None = None
+    intensity: float | None = Field(None, ge=0, le=1)
+    text: str | None = Field(None, min_length=1, max_length=4000)
+
+
+class EditsRequest(BaseModel):
+    edits: dict[str, LineEdit]
+
+
+class PronunciationsRequest(BaseModel):
+    pronunciations: dict[str, str]
 
 
 class CheckoutRequest(BaseModel):
@@ -129,6 +152,59 @@ def _render_cost(project: db.Project, req: RenderRequest) -> int:
     return sum(c["words"] for c in chapters)
 
 
+def _load_script(project: db.Project) -> list[dict]:
+    data = get_storage().read_bytes(f"jobs/{project.id}/script.json")
+    if data is None or not project.result:
+        raise HTTPException(409, "Render the book first; edits apply to a finished render.")
+    return json.loads(data)
+
+
+def _pending_cost(project: db.Project, script: list[dict]) -> int:
+    """Words that must be rendered again: edited lines, plus lines a changed pronunciation
+    touches."""
+    edits = project.edits or {}
+    terms = lexicon.affected_terms((project.render_options or {}).get("pronunciations"),
+                                   project.pronunciations)
+    words = 0
+    for c, chapter in enumerate(script):
+        for n, line in enumerate(chapter["lines"]):
+            edit = edits.get(f"{c}:{n}")
+            text = (edit or {}).get("text") or line["text"]
+            if edit or lexicon.mentions(text, terms):
+                words += max(1, len(text.split()))
+    return words
+
+
+def _queue(database: Session, user: db.User, project: db.Project, options: dict,
+           cost: int) -> dict:
+    """Charge ``cost`` credits and queue a render with ``options``."""
+    active = database.scalar(select(func.count()).select_from(db.Project).where(
+        db.Project.user_id == user.id, db.Project.status.in_(ACTIVE)))
+    if active >= get_settings().max_active_renders:
+        raise HTTPException(429, "You already have the maximum number of books rendering. "
+                                 "Wait for one to finish.")
+    available = db.balance(database, user.id)
+    if cost > available:
+        raise HTTPException(402, f"This render needs {cost:,} credits; you have {available:,}.")
+    if options.get("qa"):
+        try:
+            get_transcriber()
+        except QAError as exc:
+            raise HTTPException(422, f"Listening checks are unavailable: {exc}") from exc
+    if cost:
+        database.add(db.CreditEntry(user_id=user.id, delta=-cost, reason="render",
+                                    project_id=project.id))
+    project.status, project.error = "queued", None
+    project.render_options = options
+    project.charged = cost
+    project.job_id = uuid.uuid4().hex
+    database.commit()
+
+    render_project_task.apply_async(args=[project.id], task_id=project.job_id)
+    database.refresh(project)
+    return project_out(project, detail=True)
+
+
 def project_out(project: db.Project, detail: bool = False) -> dict:
     out = {
         "id": project.id,
@@ -147,6 +223,8 @@ def project_out(project: db.Project, detail: bool = False) -> dict:
     out["chapters"] = project.chapters
     out["render_options"] = project.render_options
     out["charged"] = project.charged
+    out["pending_edits"] = len(project.edits or {})
+    out["pronunciations"] = project.pronunciations or {}
     out["progress"] = _progress(project)
     result = dict(project.result) if project.result else None
     if result:
@@ -184,6 +262,14 @@ def me(user: db.User = Depends(current_user), database: Session = Depends(db.get
               auth_mode=get_settings().auth_mode)
 
 
+def _qa_available() -> bool:
+    try:
+        get_transcriber()
+    except QAError:
+        return False
+    return True
+
+
 @app.get("/v1/options")
 def options() -> dict:
     """What the render form can offer: engines (and their voices), directors, credit packs."""
@@ -209,6 +295,7 @@ def options() -> dict:
         "preview_words": s.preview_words,
         "packs": [{"id": k, "credits": c, "price_cents": p} for k, (c, p) in s.credit_packs.items()],
         "payments": bool(s.stripe_secret_key),
+        "qa": _qa_available(),
         "max_upload_mb": s.max_upload_mb,
     }
 
@@ -290,29 +377,32 @@ def render_project(project_id: str, req: RenderRequest, user: db.User = Depends(
     except TTSError as exc:
         raise HTTPException(422, str(exc)) from exc
 
-    active = database.scalar(select(func.count()).select_from(db.Project).where(
-        db.Project.user_id == user.id, db.Project.status.in_(ACTIVE)))
-    if active >= get_settings().max_active_renders:
-        raise HTTPException(429, "You already have the maximum number of books rendering. "
-                                 "Wait for one to finish.")
+    options = req.model_dump() | {"mode": "full",
+                                  "pronunciations": project.pronunciations or {}}
+    out = _queue(database, user, project, options, _render_cost(project, req))
+    return out
 
-    cost = _render_cost(project, req)
-    available = db.balance(database, user.id)
-    if cost > available:
-        raise HTTPException(402, f"This render needs {cost:,} credits; you have {available:,}.")
-    if cost:
-        database.add(db.CreditEntry(user_id=user.id, delta=-cost, reason="render",
-                                    project_id=project.id))
-    get_storage().delete_prefix(f"jobs/{project.id}")
-    project.status, project.error, project.result = "queued", None, None
-    project.render_options = req.model_dump()
-    project.charged = cost
-    project.job_id = uuid.uuid4().hex
-    database.commit()
 
-    render_project_task.apply_async(args=[project.id], task_id=project.job_id)
-    database.refresh(project)
-    return project_out(project, detail=True)
+@app.post("/v1/projects/{project_id}/rerender", status_code=202)
+def rerender_project(project_id: str, req: RerenderRequest,
+                     user: db.User = Depends(current_user),
+                     database: Session = Depends(db.get_db)) -> dict:
+    """Apply pending line edits and pronunciation changes to the finished render.
+
+    Only changed lines are synthesized again, and only their words are charged.
+    """
+    project = _own_project(database, user, project_id)
+    if project.status in ACTIVE:
+        raise HTTPException(409, "This project is already rendering")
+    script = _load_script(project)
+    cost = _pending_cost(project, script)
+    previous = dict(project.render_options or {})
+    if not cost:
+        raise HTTPException(400, "Nothing to update: edit a line or a pronunciation first.")
+    qa = previous.get("qa", False) if req.qa is None else req.qa
+    options = previous | {"mode": "rerender", "qa": qa,
+                          "pronunciations": project.pronunciations or {}}
+    return _queue(database, user, project, options, cost)
 
 
 @app.get("/v1/projects/{project_id}/events")
@@ -345,15 +435,85 @@ def project_events(project_id: str, user: db.User = Depends(current_user),
                              headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"})
 
 
+def _script_view(project: db.Project, script: list[dict]) -> dict:
+    """The rendered script with pending edits shown in place (``edited: true``)."""
+    edits = project.edits or {}
+    chapters = []
+    for c, chapter in enumerate(script):
+        lines = []
+        for n, line in enumerate(chapter["lines"]):
+            edit = edits.get(f"{c}:{n}")
+            lines.append(line | (edit or {}) | {"index": n, "edited": bool(edit)})
+        chapters.append({"chapter": chapter["chapter"], "lines": lines})
+    result = project.result or {}
+    return {
+        "chapters": chapters,
+        "characters": result.get("characters", []),
+        "pronunciations": project.pronunciations or {},
+        "pending_edits": len(edits),
+        "pending_cost": _pending_cost(project, script),
+        "qa": result.get("qa"),
+    }
+
+
 @app.get("/v1/projects/{project_id}/script")
 def project_script(project_id: str, user: db.User = Depends(current_user),
-                   database: Session = Depends(db.get_db)) -> list:
-    """Every rendered line with its speaker, emotion and voice (for the line editor)."""
-    _own_project(database, user, project_id)
+                   database: Session = Depends(db.get_db)) -> dict:
+    """Every rendered line with its speaker, emotion, voice and listening check, plus any
+    pending edits (for the line editor)."""
+    project = _own_project(database, user, project_id)
     data = get_storage().read_bytes(f"jobs/{project_id}/script.json")
     if data is None:
         raise HTTPException(404, "Not rendered yet")
-    return json.loads(data)
+    return _script_view(project, json.loads(data))
+
+
+@app.put("/v1/projects/{project_id}/edits")
+def save_edits(project_id: str, req: EditsRequest, user: db.User = Depends(current_user),
+               database: Session = Depends(db.get_db)) -> dict:
+    """Replace the pending line edits. Nothing is rendered until /rerender."""
+    project = _own_project(database, user, project_id)
+    if project.status in ACTIVE:
+        raise HTTPException(409, "Wait for the current render to finish before editing.")
+    script = _load_script(project)
+    clean: dict[str, dict] = {}
+    for key, edit in req.edits.items():
+        try:
+            c, n = (int(x) for x in key.split(":"))
+            line = script[c]["lines"][n]
+        except (ValueError, IndexError) as exc:
+            raise HTTPException(422, f"No line '{key}' in this script") from exc
+        change = {k: v for k, v in edit.model_dump().items() if v is not None}
+        if "emotion" in change and change["emotion"] not in EMOTIONS:
+            raise HTTPException(422, f"emotion must be one of {', '.join(EMOTIONS)}")
+        if "speaker" in change:
+            change["speaker"] = change["speaker"].strip()
+        if "text" in change:
+            change["text"] = " ".join(change["text"].split())
+        change = {k: v for k, v in change.items() if line.get(k) != v}  # drop no-ops
+        if change:
+            clean[f"{c}:{n}"] = change
+    project.edits = clean or None
+    database.commit()
+    return _script_view(project, script)
+
+
+@app.put("/v1/projects/{project_id}/pronunciations")
+def save_pronunciations(project_id: str, req: PronunciationsRequest,
+                        user: db.User = Depends(current_user),
+                        database: Session = Depends(db.get_db)) -> dict:
+    """Replace the book's pronunciation dictionary. Applies from the next (re-)render."""
+    project = _own_project(database, user, project_id)
+    if project.status in ACTIVE:
+        raise HTTPException(409, "Wait for the current render to finish before editing.")
+    try:
+        project.pronunciations = lexicon.clean_lexicon(req.pronunciations) or None
+    except lexicon.LexiconError as exc:
+        raise HTTPException(422, str(exc)) from exc
+    database.commit()
+    data = get_storage().read_bytes(f"jobs/{project_id}/script.json")
+    cost = _pending_cost(project, json.loads(data)) if data and project.result else 0
+    return {"pronunciations": project.pronunciations or {}, "pending_cost": cost}
 
 
 @app.get("/v1/projects/{project_id}/files/{file_path:path}")

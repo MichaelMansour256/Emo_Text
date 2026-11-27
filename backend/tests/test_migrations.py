@@ -27,4 +27,4 @@ def test_sprint3_database_is_adopted_and_upgraded(tmp_path):
     assert "rights_confirmed_at" in cols
     with engine.connect() as conn:
         assert conn.execute(text("SELECT count(*) FROM users")).scalar() == 1
-        assert conn.execute(text("SELECT version_num FROM alembic_version")).scalar() == "0002"
+        assert conn.execute(text("SELECT version_num FROM alembic_version")).scalar() == "0003"

@@ -76,6 +76,10 @@ class Project(Base):
     result: Mapped[dict | None] = mapped_column(JSON)
     error: Mapped[str | None] = mapped_column(Text)
     rights_confirmed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    # Line edits waiting for a re-render: {"<chapter>:<line>": {speaker, emotion, ...}}.
+    edits: Mapped[dict | None] = mapped_column(JSON)
+    # Pronunciation dictionary for this book: {"Nadia": "NAH-dee-ah"}.
+    pronunciations: Mapped[dict | None] = mapped_column(JSON)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_now)
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_now,
                                                  onupdate=_now)

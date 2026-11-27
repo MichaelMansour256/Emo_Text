@@ -10,7 +10,9 @@ from pathlib import Path
 
 from emotext.director import DIRECTORS, DirectorError, get_director
 from emotext.ingest import DocumentError, load_document
+from emotext.lexicon import LexiconError, clean_lexicon
 from emotext.pipeline import build_book, safe_filename
+from emotext.qa import QAError, get_transcriber
 from emotext.tts import PROVIDERS, TTSError, get_provider
 
 
@@ -29,6 +31,9 @@ def _build(args: argparse.Namespace) -> int:
     out = Path(args.output or Path("output") / safe_filename(Path(args.input).stem))
     director = get_director(args.director, cache_dir=out / "work" / "director")
     overrides = json.loads(Path(args.cast).read_text(encoding="utf-8")) if args.cast else None
+    lexicon = (clean_lexicon(json.loads(Path(args.pronunciations).read_text(encoding="utf-8")))
+               if args.pronunciations else None)
+    transcriber = get_transcriber() if args.qa else None
 
     def progress(stage: str, done: int, total: int) -> None:
         if stage == "render":
@@ -38,7 +43,8 @@ def _build(args: argparse.Namespace) -> int:
 
     result = build_book(args.input, out, provider, director=director, cast_overrides=overrides,
                         max_chapters=args.chapters,
-                        workers=args.workers, make_m4b=not args.no_m4b, progress=progress)
+                        workers=args.workers, make_m4b=not args.no_m4b, progress=progress,
+                        pronunciations=lexicon, transcriber=transcriber)
     print(f"\n{result.title}: {len(result.chapters)} chapters, "
           f"{result.duration_s / 60:.1f} min of audio -> {out}")
     for c in result.chapters:
@@ -47,6 +53,9 @@ def _build(args: argparse.Namespace) -> int:
         print(f"  voice  {name:24s} -> {voice}")
     if result.m4b:
         print(f"  {result.m4b}")
+    if result.qa:
+        print(f"  listening check: {result.qa['flagged']} of {result.qa['checked']} lines "
+              "flagged (see script.json)")
     return 0
 
 
@@ -94,6 +103,10 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("--chapters", type=int, help="only render the first N chapters")
     p.add_argument("--workers", type=int, default=4, help="parallel TTS requests")
     p.add_argument("--no-m4b", action="store_true", help="skip the M4B audiobook file")
+    p.add_argument("--pronunciations",
+                   help='JSON file of respellings, e.g. {"Nadia": "NAH-dee-ah"}')
+    p.add_argument("--qa", action="store_true",
+                   help="transcribe every line and flag mismatches (needs OPENAI_API_KEY)")
     p.set_defaults(func=_build)
 
     p = sub.add_parser("eval", help="score speaker attribution on labelled scenes")
@@ -110,7 +123,7 @@ def main(argv: list[str] | None = None) -> int:
     logging.basicConfig(level=logging.INFO, format="%(levelname)s %(message)s")
     try:
         return args.func(args)
-    except (DocumentError, TTSError, DirectorError) as exc:
+    except (DocumentError, TTSError, DirectorError, QAError, LexiconError) as exc:
         print(f"error: {exc}", file=sys.stderr)
         return 1
 

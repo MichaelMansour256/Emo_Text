@@ -48,6 +48,27 @@ emotext build book.epub --cast cast.json     # {"Mara": "nova", "Dr. Hale": "ony
 Each build writes `script.json` (every line with speaker, emotion, intensity, voice) next to
 `manifest.json` (which records the character list and cast).
 
+## Quality tools
+
+**Pronunciations.** A dictionary of respellings, applied only to what the engine reads (the
+script keeps the book's words). Whole-word, case-insensitive, longest entry first:
+
+```bash
+emotext build book.epub --pronunciations names.json   # {"Nadia": "NAH-dee-ah"}
+```
+
+**Line edits.** In the web app (or `PUT /v1/projects/{id}/edits`) any line's speaker, emotion,
+strength or text can be changed. `POST /v1/projects/{id}/rerender` then renders the saved
+script again with the edits applied: nothing is re-read or re-directed and voices stay as cast,
+so only edited lines (and lines a changed pronunciation touches) reach the engine, and only
+their words are charged.
+
+**Listening check.** `--qa` (or `qa: true` on a render) transcribes every line with
+`gpt-4o-mini-transcribe` and flags lines whose words differ by more than a third from the text
+(skipped or garbled words, wrong language). Results go into `script.json` per line and a
+`qa: {checked, flagged}` summary; transcripts are cached beside the line audio, so re-renders
+only check what changed. Needs `OPENAI_API_KEY`.
+
 ### Eval
 
 `samples/eval/*.txt` are short scenes with a gold speaker label before every quotation
@@ -57,7 +78,7 @@ Each build writes `script.json` (every line with speaker, emotion, intensity, vo
 emotext eval --director heuristic -v
 ```
 
-Current results: heuristic 89.7% (35/39), none 5.1%. These scenes were written alongside the
+Current results: heuristic 97.4% (38/39), none 5.1%. These scenes were written alongside the
 heuristic, so treat them as a regression check rather than a measure of real-book accuracy;
 add passages from real (public-domain) books to make the number meaningful.
 
@@ -83,9 +104,12 @@ Every `/v1` route needs a user, except signed file links and the Stripe webhook.
 | `GET /v1/options` | engines (with voices, and why one is unavailable), directors, credit packs |
 | `POST /v1/projects` | upload a book with `rights_confirmed=true`; it is parsed at once (chapters, word counts) |
 | `GET /v1/projects`, `GET /v1/projects/{id}` | list / detail, including progress and signed audio links |
-| `POST /v1/projects/{id}/render` | `{provider, voice, director, max_chapters, preview, cast}`: charges credits and queues the render |
+| `POST /v1/projects/{id}/render` | `{provider, voice, director, max_chapters, preview, cast, qa}`: charges credits and queues a fresh render (pending edits are dropped) |
 | `GET /v1/projects/{id}/events` | server-sent events with status and progress until the render ends |
-| `GET /v1/projects/{id}/script` | every rendered line with speaker, emotion and voice |
+| `GET /v1/projects/{id}/script` | every rendered line (speaker, emotion, voice, listening check) with pending edits shown in place, and the pending cost |
+| `PUT /v1/projects/{id}/edits` | replace the pending line edits `{"<chapter>:<line>": {speaker, emotion, intensity, text}}` |
+| `PUT /v1/projects/{id}/pronunciations` | replace the book's pronunciation dictionary |
+| `POST /v1/projects/{id}/rerender` | apply pending edits and pronunciations; only changed lines are rendered and charged |
 | `GET /v1/projects/{id}/files/{path}?expires=&sig=` | signed download, so `<audio>` needs no auth header |
 | `DELETE /v1/projects/{id}` | delete the project, its upload and its audio |
 | `GET /v1/billing/ledger`, `POST /v1/billing/checkout`, `POST /v1/billing/webhook` | credit history, Stripe Checkout, Stripe webhook |
@@ -135,6 +159,7 @@ Environment variables (or `.env`), all prefixed `EMOTEXT_` except the provider k
 |------|-----------|
 | Basics | `DATA_DIR`, `REDIS_URL`, `CELERY_EAGER`, `MAX_UPLOAD_MB`, `ENVIRONMENT`, `PUBLIC_URL`, `CORS_ORIGINS` |
 | Voices | `TTS_PROVIDER`, `TTS_VOICE`, `OPENAI_TTS_MODEL`, plus `OPENAI_API_KEY` |
+| Listening check | `QA_TRANSCRIBER` (`openai`), `OPENAI_TRANSCRIBE_MODEL` |
 | Director | `DIRECTOR`, `DIRECTOR_MODEL`, `DIRECTOR_EFFORT`, plus `ANTHROPIC_API_KEY` |
 | Accounts | `DATABASE_URL`, `AUTH_MODE`, `AUTH_JWKS_URL`, `AUTH_JWT_SECRET`, `AUTH_AUDIENCE`, `AUTH_ISSUER`, `SECRET_KEY` |
 | Credits | `SIGNUP_CREDITS`, `PREVIEW_WORDS`, `STRIPE_SECRET_KEY`, `STRIPE_WEBHOOK_SECRET` |

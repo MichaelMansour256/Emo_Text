@@ -6,6 +6,7 @@ Run locally with:  celery -A emotext.worker worker --loglevel=info
 
 from __future__ import annotations
 
+import json
 import logging
 import shutil
 import tempfile
@@ -17,7 +18,8 @@ from celery import Celery
 from emotext import db
 from emotext.director import get_director
 from emotext.observability import init_sentry
-from emotext.pipeline import build_book
+from emotext.pipeline import build_book, rerender_book
+from emotext.qa import get_transcriber
 from emotext.settings import get_settings
 from emotext.storage import get_storage
 from emotext.tts import get_provider
@@ -47,38 +49,64 @@ celery_app.conf.update(
 
 @celery_app.task(bind=True, name="emotext.render_project")
 def render_project_task(self, project_id: str) -> dict:
-    """Render a project and record the outcome on its row. Failed renders are refunded."""
+    """Render a project and record the outcome on its row. Failed renders are refunded.
+
+    ``render_options["mode"]`` is "full" (read, direct and render the book) or "rerender"
+    (apply pending line edits and pronunciations to the saved script; unchanged lines come
+    from the cache).
+    """
+    storage = get_storage()
+    prefix = f"jobs/{project_id}"
     with db.session() as s:
         project = s.get(db.Project, project_id)
         if project is None:
             return {"error": "project deleted"}
+        opts = dict(project.render_options)
+        rerender = opts.get("mode") == "rerender"
+        if rerender:
+            edits, previous = dict(project.edits or {}), dict(project.result or {})
+        else:  # a fresh render replaces the old one, and edits to it no longer apply
+            edits, previous = {}, {}
+            project.result, project.edits = None, None
+            storage.delete_prefix(prefix)
         project.status = "rendering"
         s.commit()
-        opts = dict(project.render_options)
         source, user_id, charged = project.source_path, project.user_id, project.charged
 
     def progress(stage: str, done: int, total: int) -> None:
         self.update_state(state="PROGRESS", meta={"stage": stage, "done": done, "total": total})
 
-    storage = get_storage()
-    prefix = f"jobs/{project_id}"
     # Local storage renders in place; a bucket gets a scratch folder, uploaded at the end.
     in_place = storage.local_dir(prefix)
     out_dir = in_place or Path(tempfile.mkdtemp(prefix="emotext-render-"))
+    common = {
+        "cast_overrides": opts.get("cast") or None,
+        "cache_dir": settings.data_dir / "cache",
+        "progress": progress,
+        "pronunciations": opts.get("pronunciations") or None,
+        "transcriber": get_transcriber() if opts.get("qa") else None,
+    }
     try:
-        local_source = storage.fetch(source, out_dir / "work" / "source")
-        result = build_book(
-            local_source,
-            out_dir,
-            get_provider(opts.get("provider"), opts.get("voice")),
-            director=get_director(opts.get("director"),
-                                  cache_dir=settings.data_dir / "cache" / "director"),
-            cast_overrides=opts.get("cast") or None,
-            max_chapters=opts.get("max_chapters"),
-            cache_dir=settings.data_dir / "cache",
-            progress=progress,
-            preview_words=settings.preview_words if opts.get("preview") else None,
-        )
+        provider = get_provider(opts.get("provider"), opts.get("voice"))
+        if rerender:
+            script = json.loads(storage.read_bytes(f"{prefix}/script.json") or b"[]")
+            result = rerender_book(
+                script, out_dir, provider,
+                title=previous["title"], author=previous.get("author"),
+                director_name=previous.get("director", "none"),
+                characters=previous.get("characters", []),
+                previous_cast=previous.get("cast", {}).get("characters"),
+                edits=edits, make_m4b=not opts.get("preview"), **common,
+            )
+        else:
+            result = build_book(
+                storage.fetch(source, out_dir / "work" / "source"), out_dir, provider,
+                director=get_director(opts.get("director"),
+                                      cache_dir=settings.data_dir / "cache" / "director"),
+                max_chapters=opts.get("max_chapters"),
+                preview_words=settings.preview_words if opts.get("preview") else None,
+                **common,
+            )
         if in_place is None:
             storage.put_tree(out_dir, prefix)
     except Exception as exc:
@@ -86,6 +114,7 @@ def render_project_task(self, project_id: str) -> dict:
         with db.session() as s:
             project = s.get(db.Project, project_id)
             if project is not None:
+                # A failed re-render keeps the previous audio and the pending edits.
                 project.status, project.error = "failed", f"{type(exc).__name__}: {exc}"
             if charged:
                 s.add(db.CreditEntry(user_id=user_id, delta=charged, reason="refund",
@@ -102,5 +131,7 @@ def render_project_task(self, project_id: str) -> dict:
         project = s.get(db.Project, project_id)
         if project is not None:
             project.status, project.result, project.error = "done", summary, None
+            if rerender:
+                project.edits = None  # now part of the script
             s.commit()
     return summary
