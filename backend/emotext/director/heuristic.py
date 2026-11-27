@@ -42,6 +42,9 @@ _NAME_VERB = re.compile(rf"(?:^|[\s,;:—–-])({_NAME})\s+(?:\w+ly\s+)?(?:{_VER
 _PRONOUN_TAG = re.compile(rf"\b(he|she)\s+(?:\w+ly\s+)?(?:{_VERBS})\b|\b(?:{_VERBS})\s+(he|she)\b",
                           re.IGNORECASE)
 _SUBJECT = re.compile(rf"(?:^|[.!?]\s+)({_NAME})\s+[a-z]")
+# A name inside a sentence ("it seemed to Nadia."): a likely character, but it could be a place,
+# so it only becomes one if a pronoun tag or turn-taking later picks it.
+_MID_NAME = re.compile(rf"(?<=[a-z,;:] )({_NAME})\b")
 _GENDER_HINT = re.compile(rf"({_NAME})\b[^.!?]*?\b(he|his|him|she|her|hers)\b")
 # Quoted text that is written, not spoken: 'a card read "..."'.
 _WRITTEN = re.compile(r"\b(read|reads|written|wrote|writes|labell?ed|titled|printed|engraved|"
@@ -142,12 +145,17 @@ class HeuristicDirector(Director):
             if name := _clean_name(m.group(1)):
                 gender = "male" if m.group(2).lower() in ("he", "his", "him") else "female"
                 roster.add(Character(name=name, gender=gender))
+        found: list[tuple[int, str]] = []
         for m in _SUBJECT.finditer(narration):
             if name := _clean_name(m.group(1)):
-                canonical = roster.resolve(name)
-                if canonical in mentioned:
-                    mentioned.remove(canonical)
-                mentioned.append(canonical)
+                found.append((m.start(1), roster.resolve(name)))
+        for m in _MID_NAME.finditer(narration):
+            if name := _clean_name(m.group(1)):
+                found.append((m.start(1), roster.canonical(name) or name))
+        for _, name in sorted(found):  # most recent mention last
+            if name in mentioned:
+                mentioned.remove(name)
+            mentioned.append(name)
 
     def _attribute(self, lines, narration, roster, history, mentioned) -> str:
         last = history[-1] if history else None

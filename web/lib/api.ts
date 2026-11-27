@@ -25,6 +25,8 @@ export type Options = {
   packs: { id: string; credits: number; price_cents: number }[];
   payments: boolean;
   max_upload_mb: number;
+  /** Listening checks (transcription) are configured on the server. */
+  qa: boolean;
 };
 export type Me = { id: string; email: string | null; credits: number; auth_mode: string };
 export type ChapterInfo = { index: number; title: string; words: number; preview: string };
@@ -48,6 +50,7 @@ export type RenderResult = {
   m4b_url?: string;
   characters: { name: string; gender: string; description?: string }[];
   cast: { narrator?: string; characters?: Record<string, string> };
+  qa?: { checked: number; flagged: number } | null;
 };
 export type ProjectSummary = {
   id: string;
@@ -67,6 +70,8 @@ export type Project = ProjectSummary & {
   charged: number;
   progress: Progress;
   result: RenderResult | null;
+  pending_edits: number;
+  pronunciations: Record<string, string>;
 };
 export type RenderRequest = {
   provider?: string;
@@ -75,7 +80,33 @@ export type RenderRequest = {
   max_chapters?: number;
   preview?: boolean;
   cast?: Record<string, string>;
+  qa?: boolean;
 };
+
+export const EMOTIONS = ["neutral", "joy", "sadness", "fear", "anger", "surprise", "disgust"];
+
+export type LineQA = { heard: string; wer: number; flagged: boolean };
+export type ScriptLine = {
+  index: number;
+  text: string;
+  speaker: string;
+  emotion: string;
+  intensity: number;
+  kind: "title" | "narration" | "dialogue";
+  paragraph: number;
+  voice: string | null;
+  edited: boolean;
+  qa?: LineQA;
+};
+export type ScriptView = {
+  chapters: { chapter: string; lines: ScriptLine[] }[];
+  characters: { name: string; gender: string }[];
+  pronunciations: Record<string, string>;
+  pending_edits: number;
+  pending_cost: number;
+  qa: { checked: number; flagged: number } | null;
+};
+export type LineEdit = Partial<Pick<ScriptLine, "speaker" | "emotion" | "intensity" | "text">>;
 
 const DEV_USER_KEY = "emotext.devUser";
 let tokenGetter: (() => Promise<string | null>) | null = null;
@@ -155,6 +186,16 @@ export const api = {
   render: (id: string, req: RenderRequest) =>
     request<Project>(`/v1/projects/${id}/render`, json(req)),
   remove: (id: string) => request<void>(`/v1/projects/${id}`, { method: "DELETE" }),
+  script: (id: string) => request<ScriptView>(`/v1/projects/${id}/script`),
+  saveEdits: (id: string, edits: Record<string, LineEdit>) =>
+    request<ScriptView>(`/v1/projects/${id}/edits`, { ...json({ edits }), method: "PUT" }),
+  savePronunciations: (id: string, pronunciations: Record<string, string>) =>
+    request<{ pronunciations: Record<string, string>; pending_cost: number }>(
+      `/v1/projects/${id}/pronunciations`,
+      { ...json({ pronunciations }), method: "PUT" },
+    ),
+  rerender: (id: string, qa?: boolean) =>
+    request<Project>(`/v1/projects/${id}/rerender`, json({ qa })),
   checkout: (pack: string) => request<{ url: string }>("/v1/billing/checkout", json({ pack })),
   ledger: () =>
     request<{ delta: number; reason: string; project_id: string | null; created_at: string }[]>(

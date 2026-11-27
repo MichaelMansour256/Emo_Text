@@ -80,7 +80,7 @@ def test_preview_is_free_and_files_need_a_valid_signature(sample_txt):
     events = client.get(f"/v1/projects/{pid}/events", headers=user).text
     assert json.loads(events.split("data: ")[1])["status"] == "done"
     script = client.get(f"/v1/projects/{pid}/script", headers=user).json()
-    assert script[0]["lines"]
+    assert script["chapters"][0]["lines"]
 
     assert client.delete(f"/v1/projects/{pid}", headers=user).status_code == 204
     assert client.get(f"/v1/projects/{pid}", headers=user).status_code == 404
@@ -217,3 +217,66 @@ def test_concurrent_render_limit(sample_txt, monkeypatch):
 
 def test_ready_checks_the_database():
     assert client.get("/ready").json() == {"status": "ready"}
+
+
+# -- line editor and pronunciations -------------------------------------------------------------
+
+
+@requires_ffmpeg
+def test_edit_lines_and_rerender_charges_only_changed_words(tmp_path):
+    src = tmp_path / "scene.txt"
+    src.write_text('Nadia climbed the stairs.\n\n"Who is there?" Nadia asked.\n\n'
+                   '"Only me," said Haddad.', encoding="utf-8")
+    user = as_user()
+    pid = upload(src, user).json()["id"]
+    assert client.put(f"/v1/projects/{pid}/edits", headers=user,
+                      json={"edits": {}}).status_code == 409  # nothing rendered yet
+    done = client.post(f"/v1/projects/{pid}/render", headers=user,
+                       json={"provider": "tone", "director": "heuristic"}).json()
+    assert done["status"] == "done", done
+    credits = client.get("/v1/me", headers=user).json()["credits"]
+
+    view = client.get(f"/v1/projects/{pid}/script", headers=user).json()
+    lines = view["chapters"][0]["lines"]
+    only_me = next(ln for ln in lines if ln["text"] == '"Only me,"')
+    key = f"0:{only_me['index']}"
+    assert view["pending_cost"] == 0
+    assert client.post(f"/v1/projects/{pid}/rerender", headers=user,
+                       json={}).status_code == 400  # nothing to do
+
+    bad = client.put(f"/v1/projects/{pid}/edits", headers=user,
+                     json={"edits": {key: {"emotion": "smug"}}})
+    assert bad.status_code == 422
+    assert client.put(f"/v1/projects/{pid}/edits", headers=user,
+                      json={"edits": {"9:9": {"emotion": "joy"}}}).status_code == 422
+
+    view = client.put(f"/v1/projects/{pid}/edits", headers=user, json={"edits": {
+        key: {"speaker": "Omar", "emotion": "fear", "intensity": 0.9},
+        "0:0": {"speaker": lines[0]["speaker"]},  # unchanged: dropped as a no-op
+    }}).json()
+    assert view["pending_edits"] == 1 and view["pending_cost"] == 2
+    edited = next(ln for ln in view["chapters"][0]["lines"] if ln["index"] == only_me["index"])
+    assert edited["edited"] and edited["speaker"] == "Omar"
+
+    pron = client.put(f"/v1/projects/{pid}/pronunciations", headers=user,
+                      json={"pronunciations": {"Nadia": "NAH-dee-ah", " ": "x"}}).json()
+    assert pron["pronunciations"] == {"Nadia": "NAH-dee-ah"}
+    # "Only me," (2) + the two narration lines naming Nadia (4 + 2)
+    assert pron["pending_cost"] == 8
+
+    again = client.post(f"/v1/projects/{pid}/rerender", headers=user, json={}).json()
+    assert again["status"] == "done" and again["charged"] == 8, again
+    assert again["pending_edits"] == 0
+    assert client.get("/v1/me", headers=user).json()["credits"] == credits - 8
+    after = client.get(f"/v1/projects/{pid}/script", headers=user).json()
+    line = after["chapters"][0]["lines"][only_me["index"]]
+    assert line["speaker"] == "Omar" and not line["edited"] and after["pending_cost"] == 0
+    assert "Omar" in again["result"]["cast"]["characters"]
+
+
+def test_qa_without_a_transcriber_is_a_clear_error(sample_txt):
+    user = as_user()
+    pid = upload(sample_txt, user).json()["id"]
+    resp = client.post(f"/v1/projects/{pid}/render", headers=user,
+                       json={"provider": "tone", "preview": True, "qa": True})
+    assert resp.status_code == 422 and "OPENAI_API_KEY" in resp.json()["detail"]

@@ -48,6 +48,7 @@ limits on uploads, unbuffered progress), and add the web domain to the API's
 |-------|--------------|
 | `/` | sign-in, or the library with drag-and-drop upload |
 | `/projects/[id]` | chapters, render options and cost, live progress, player, cast, delete |
+| `/projects/[id]/edit` | line editor (speaker, emotion, strength, text), pronunciations, listening-check flags, "Update audio" |
 | `/billing` | balance, credit packs (Stripe Checkout), history |
 | `/terms`, `/privacy` | plain-language beta drafts; review before launch |
 

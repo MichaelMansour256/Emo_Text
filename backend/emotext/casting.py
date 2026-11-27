@@ -62,6 +62,12 @@ class Cast:
         # Prefer an unused voice; otherwise the least-used one, in catalog order.
         return min(candidates, key=lambda v: (used[v.id], candidates.index(v))).id
 
+    def seed(self, assignments: dict[str, str]) -> None:
+        """Keep voices from an earlier render (overrides still win)."""
+        for speaker, voice in assignments.items():
+            if speaker not in self._overrides:
+                self.assignments.setdefault(speaker, voice)
+
     def assign(self, lines: list[Line], roster: Roster) -> None:
         for line in lines:
             line.voice = self.voice_for(line.speaker, roster)

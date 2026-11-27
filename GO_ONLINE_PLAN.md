@@ -232,6 +232,19 @@ with **one hosted API + one self-hosted model**, and pick by blind listening tes
       S3), and the deploy itself.
 - [ ] Terms and Privacy are drafts for the beta, not legal advice.
 
+### Fifth sprint — quality (see `backend/README.md` → Quality tools)
+- [x] Line editor: change any line's speaker, emotion, strength or text; "Update audio"
+      re-renders only changed lines from the saved script and charges only their words.
+- [x] Pronunciation dictionary per book, applied only to what the engine reads.
+- [x] Listening check (opt-in): transcribe every line, flag mismatches, cache results.
+- [x] Director: names mentioned mid-sentence now count for pronoun tags ("…seemed to Nadia.
+      … she asked" → Nadia). Eval 89.7% → 97.4%, still on the small self-written set.
+- [ ] Not verified: the listening check against the real transcription API (no key here;
+      covered by tests with a fake transcriber).
+- [ ] Not done: playing a single line in the editor, a user-wide pronunciation dictionary,
+      mastering presets. The line cache lives on the worker's disk, so on Fly a restarted
+      worker re-synthesizes unchanged lines once (correct, just slower and costlier).
+
 ---
 
 ## 8. Business model & metrics

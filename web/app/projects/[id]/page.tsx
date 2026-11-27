@@ -28,7 +28,7 @@ const STAGES: Record<string, string> = {
 export default function ProjectPage() {
   const { id } = useParams<{ id: string }>();
   const router = useRouter();
-  const { me, refresh } = useSession();
+  const { me, loading: sessionLoading, refresh } = useSession();
   const [project, setProject] = useState<Project | null>(null);
   const [options, setOptions] = useState<Options | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -85,6 +85,7 @@ export default function ProjectPage() {
     router.push("/");
   }
 
+  if (sessionLoading) return <p className="muted">Loading…</p>;
   if (!me) return <p className="muted">Sign in to see this book.</p>;
   if (!project) return error ? <p className="error">{error}</p> : <p className="muted">Loading…</p>;
 
@@ -114,7 +115,7 @@ export default function ProjectPage() {
           {project.error && <pre className="small">{project.error}</pre>}
         </div>
       )}
-      {project.status === "done" && project.result && <Player project={project} />}
+      {!active && project.result && <Player project={project} />}
 
       {!active && options && (
         <RenderPanel
@@ -191,6 +192,7 @@ function RenderPanel({
   const [voice, setVoice] = useState(prev.voice ?? "");
   const [director, setDirector] = useState(prev.director ?? options.default_director);
   const [chapters, setChapters] = useState(project.chapters.length);
+  const [qa, setQa] = useState(Boolean(prev.qa));
 
   const cost = useMemo(
     () => project.chapters.slice(0, chapters).reduce((sum, c) => sum + c.words, 0),
@@ -201,6 +203,7 @@ function RenderPanel({
     voice: voice || undefined,
     director,
     max_chapters: chapters < project.chapters.length ? chapters : undefined,
+    qa: options.qa ? qa : false,
   };
 
   return (
@@ -252,6 +255,19 @@ function RenderPanel({
           </select>
         </label>
       </div>
+      {options.qa && (
+        <label className="inline-check small">
+          <input type="checkbox" checked={qa} onChange={(e) => setQa(e.target.checked)} />
+          Listening check: transcribe every line and flag the ones that don&apos;t match the text
+        </label>
+      )}
+      {project.pending_edits > 0 && (
+        <p className="small error">
+          A new render reads and directs the book again, replacing your{" "}
+          {plural(project.pending_edits, "line edit")}. To keep them, use{" "}
+          <Link href={`/projects/${project.id}/edit`}>Edit lines → Update audio</Link>.
+        </p>
+      )}
       <div className="actions">
         <button disabled={busy || !engine} onClick={() => onRender({ ...base, preview: true })}>
           Free preview · first ~{options.preview_words} words
@@ -289,6 +305,21 @@ function Player({ project }: { project: Project }) {
       {result.preview && (
         <p className="small muted">The opening of chapter 1. Render the book to hear it all.</p>
       )}
+      {project.status === "failed" && (
+        <p className="small muted">This is the audio from before the failed update.</p>
+      )}
+      <div className="actions tight">
+        <Link className="button" href={`/projects/${project.id}/edit`}>
+          Edit lines and pronunciations
+          {project.pending_edits ? ` (${project.pending_edits} waiting)` : ""}
+        </Link>
+        {result.qa && (
+          <span className={`small ${result.qa.flagged ? "error" : "ok"}`}>
+            Listening check: {result.qa.flagged ? `${plural(result.qa.flagged, "line")} to review` : "every line matched"}{" "}
+            ({result.qa.checked} checked)
+          </span>
+        )}
+      </div>
       <ol className="tracks">
         {result.chapters.map((c) => (
           <li key={c.file}>
